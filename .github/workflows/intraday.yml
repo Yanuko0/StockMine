@@ -1,0 +1,43 @@
+# 盤中選股：交易日 09:00~13:30 每 30 分鐘，用盤中價格跑全部策略（新選到的股票會推播）
+name: 盤中選股
+
+on:
+  schedule:
+    - cron: "5,35 1-5 * * 1-5"   # 台灣時間 09:05、09:35 … 13:35（GitHub 排程可能晚 5~15 分鐘）
+  workflow_dispatch:
+
+concurrency:
+  group: intraday
+  cancel-in-progress: true
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+  SHIOAJI_API_KEY: ${{ secrets.SHIOAJI_API_KEY }}
+  SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
+  VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+  VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 28
+    defaults:
+      run:
+        working-directory: pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: 還原分鐘K 快取（只讀）
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/.cache/m1
+          key: m1-${{ github.run_id }}
+          restore-keys: m1-
+      - run: python -m twstock.cli intraday

@@ -1,0 +1,19 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.env
+.env.local
+pipeline/.env
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+.vercel
+pipeline/.cache/
+
+# 含個人策略的 SQL（不要上傳到 GitHub）
+私人_*.sql
+private_*
+**/private_*

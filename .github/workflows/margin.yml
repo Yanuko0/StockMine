@@ -1,0 +1,30 @@
+# 融資融券（官方約 21:30 公布）
+name: 融資融券
+
+on:
+  schedule:
+    - cron: "15 14 * * 1-5"   # 台灣時間 22:15
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "日期 YYYY-MM-DD（空白 = 今天）"
+        required: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: pipeline
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy httpx "psycopg[binary]"
+      - env:
+          D: ${{ inputs.date }}
+        run: python -m twstock.cli margin ${D:+--date $D}

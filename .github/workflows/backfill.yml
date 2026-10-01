@@ -1,0 +1,60 @@
+# 手動執行：第一次上線時補歷史資料
+name: 補歷史資料（手動）
+
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "要補什麼"
+        type: choice
+        options:
+          - backfill-daily
+          - backfill-minutes
+        default: backfill-daily
+      start:
+        description: "日K 起始日 YYYY-MM-DD（空白 = 5 年前）"
+        required: false
+      days:
+        description: "分鐘K 要補幾個交易日"
+        default: "30"
+      extra:
+        description: "額外參數，例如 --inst --margin --resume"
+        default: "--inst --resume"
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    defaults:
+      run:
+        working-directory: pipeline
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SHIOAJI_API_KEY: ${{ secrets.SHIOAJI_API_KEY }}
+      SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
+      FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r requirements.txt
+      - name: 執行
+        env:
+          JOB: ${{ inputs.job }}
+          START: ${{ inputs.start }}
+          DAYS: ${{ inputs.days }}
+          EXTRA: ${{ inputs.extra }}
+        run: |
+          if [ "$JOB" = "backfill-daily" ]; then
+            ARGS=""
+            [ -n "$START" ] && ARGS="--start $START"
+            for f in $EXTRA; do case "$f" in --inst|--margin|--resume) ARGS="$ARGS $f";; esac; done
+            python -m twstock.cli backfill-daily $ARGS
+          else
+            python -m twstock.cli backfill-minutes --days "$DAYS"
+          fi

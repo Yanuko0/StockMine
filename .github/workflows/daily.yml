@@ -1,0 +1,79 @@
+# 每個交易日收盤後自動執行：日K/法人 → 全市場分點 → 全市場1分K → 選股
+name: 每日盤後資料
+
+on:
+  schedule:
+    - cron: "10 8 * * 1-5"   # 台灣時間 16:10（週一到週五）
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "日期 YYYY-MM-DD（空白 = 今天）"
+        required: false
+
+concurrency:
+  group: daily
+  cancel-in-progress: false
+
+env:
+  SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+  SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+  SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+  SHIOAJI_API_KEY: ${{ secrets.SHIOAJI_API_KEY }}
+  SHIOAJI_SECRET_KEY: ${{ secrets.SHIOAJI_SECRET_KEY }}
+  FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+  FINMIND_SPONSOR: ${{ vars.FINMIND_SPONSOR }}
+  GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+  GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+  GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+  VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
+  VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
+  D: ${{ inputs.date }}
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    defaults:
+      run:
+        working-directory: pipeline
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pipeline/requirements.txt
+      - run: pip install -r requirements.txt
+
+      # 分鐘K 快取：保存在 GitHub，不必每天從 Supabase 下載全市場檔案（省下載流量）
+      - name: 還原分鐘K 快取
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/.cache/m1
+          key: m1-${{ github.run_id }}
+          restore-keys: m1-
+
+      - name: 日K、三大法人
+        id: eod
+        run: python -m twstock.cli eod ${D:+--date $D}
+
+      - name: 全市場分點、主力買賣超（證交所只能查當天）
+        if: steps.eod.outputs.trading == 'true'
+        continue-on-error: true
+        run: python -m twstock.cli broker ${D:+--date $D}
+
+      - name: 全市場 1分K（Shioaji）
+        if: steps.eod.outputs.trading == 'true'
+        continue-on-error: true
+        run: python -m twstock.cli minutes ${D:+--date $D}
+
+      - name: 儲存分鐘K 快取
+        if: steps.eod.outputs.trading == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/.cache/m1
+          key: m1-${{ github.run_id }}
+
+      - name: 選股
+        if: steps.eod.outputs.trading == 'true'
+        run: python -m twstock.cli screen ${D:+--date $D}
