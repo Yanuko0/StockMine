@@ -11,7 +11,7 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/", label: "首頁", icon: "home" },
   { href: "/screener", label: "選股", icon: "filter" },
   { href: "/plan", label: "建倉", icon: "layers" },
-  { href: "/settings", label: "設定", icon: "settings" },
+  { href: "/settings", label: "我的", icon: "settings" },
 ];
 
 const PUBLIC = ["/login", "/auth"];
@@ -98,19 +98,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <main className={`flex-1 min-h-0 overflow-y-auto scroll-thin ${inStock ? "" : "pb-[calc(60px+env(safe-area-inset-bottom))] lg:pb-0"}`}>
+        <main className={`flex-1 min-h-0 overflow-y-auto scroll-thin ${inStock ? "" : "pb-[calc(84px+env(safe-area-inset-bottom))] lg:pb-0"}`}>
           {children}
         </main>
 
-        {/* 手機：底部分頁列（個股頁隱藏，讓 K 線更大） */}
+        {/* 手機：底部分頁列（三竹式的浮動膠囊；個股頁隱藏，讓 K 線更大） */}
         {!inStock && (
-          <nav className="lg:hidden fixed bottom-0 inset-x-0 glass border-t border-line flex safe-bottom z-30">
-            {NAV.slice(0, 2).map((n) => <Tab key={n.href} {...n} on={isOn(n.href)} />)}
-            <button className="flex-1 flex flex-col items-center justify-center py-1.5 text-[11px] text-muted" onClick={() => openSearch()}>
-              <span className="w-10 h-7 rounded-full flex items-center justify-center bg-accent text-accent-ink"><Icon name="search" className="w-[18px] h-[18px]" stroke={2.2} /></span>
-              搜尋
-            </button>
-            {NAV.slice(2).map((n) => <Tab key={n.href} {...n} on={isOn(n.href)} />)}
+          <nav className="lg:hidden fixed bottom-0 inset-x-0 z-30 px-3 pt-1.5" style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}>
+            <div className="glass border border-line rounded-full flex p-1 shadow-[var(--shadow)]">
+              {NAV.slice(0, 2).map((n) => <Tab key={n.href} {...n} on={isOn(n.href)} />)}
+              <button className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-full text-[11px] text-muted" onClick={() => openSearch()}>
+                <Icon name="search" className="w-6 h-6" stroke={1.7} />搜尋
+              </button>
+              {NAV.slice(2).map((n) => <Tab key={n.href} {...n} on={isOn(n.href)} />)}
+            </div>
           </nav>
         )}
       </div>
@@ -121,7 +122,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
 function Tab({ href, label, icon, on }: { href: string; label: string; icon: IconName; on: boolean }) {
   return (
-    <Link href={href} className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 text-[11px] ${on ? "text-accent" : "text-muted"}`}>
+    <Link href={href} className={`flex-1 flex flex-col items-center gap-0.5 py-1.5 rounded-full text-[11px] transition-colors ${on ? "text-accent bg-panel-2 font-semibold" : "text-muted"}`}>
       <Icon name={icon} className="w-6 h-6" stroke={on ? 2.1 : 1.7} />
       {label}
     </Link>

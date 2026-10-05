@@ -7,34 +7,36 @@
    ============================================================= */
 :root {
   color-scheme: dark;
-  --bg: #0a0c10;          /* 最底層 */
-  --panel: #12161c;       /* 卡片 / 面板 */
-  --panel-2: #1a1f27;     /* 浮起來的元件、hover */
-  --line: #232a33;        /* 分隔線 */
-  --line-soft: #1a2028;
-  --text: #e8eaed;
-  --muted: #8b93a1;
-  --faint: #5c6470;
-  --up: #ff4d4f;
-  --down: #1fc77e;
-  --up-bg: rgba(255, 77, 79, 0.14);
-  --down-bg: rgba(31, 199, 126, 0.14);
-  --accent: #f5a524;
-  --accent-ink: #14100a;  /* 放在 accent 上的字 */
-  --accent-bg: rgba(245, 165, 36, 0.14);
+  /* 深色：參考三竹的配色（深灰底、亮紅漲亮綠跌、藍色為選取色、黃色標數字） */
+  --bg: #121212;          /* 最底層 */
+  --panel: #1e1e1e;       /* 卡片 / 面板 */
+  --panel-2: #2a2a2b;     /* 浮起來的元件、hover、分段按鈕底 */
+  --line: #303030;        /* 分隔線 */
+  --line-soft: #262626;
+  --text: #f2f2f2;
+  --muted: #9b9b9b;
+  --faint: #666666;
+  --up: #ff3b3b;
+  --down: #2fd55a;
+  --up-bg: rgba(255, 59, 59, 0.16);
+  --down-bg: rgba(47, 213, 90, 0.16);
+  --accent: #3d9cff;
+  --accent-ink: #ffffff;  /* 放在 accent 上的字 */
+  --accent-bg: rgba(61, 156, 255, 0.16);
+  --param: #e6c34a;       /* 條件裡的數字、參數 */
   --info: #4ea1ff;
-  --overlay: rgba(0, 0, 0, 0.55);
-  --shadow: 0 8px 30px rgba(0, 0, 0, 0.45);
-  --glass: rgba(10, 12, 16, 0.78);
-  --radius: 12px;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+  --glass: rgba(30, 30, 30, 0.88);
+  --radius: 14px;
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f3f4f6;
+  --bg: #f2f2f4;
   --panel: #ffffff;
-  --panel-2: #f6f7f9;
-  --line: #e3e6ea;
+  --panel-2: #f1f2f4;
+  --line: #e2e4e8;
   --line-soft: #eef0f3;
   --text: #14171c;
   --muted: #646d7a;
@@ -43,13 +45,14 @@
   --down: #0e9f5b;
   --up-bg: rgba(229, 49, 58, 0.10);
   --down-bg: rgba(14, 159, 91, 0.10);
-  --accent: #e8900c;
+  --accent: #1f6feb;
   --accent-ink: #ffffff;
-  --accent-bg: rgba(232, 144, 12, 0.12);
+  --accent-bg: rgba(31, 111, 235, 0.10);
+  --param: #b8860b;
   --info: #1f6feb;
   --overlay: rgba(15, 20, 30, 0.35);
   --shadow: 0 8px 30px rgba(20, 30, 50, 0.12);
-  --glass: rgba(255, 255, 255, 0.82);
+  --glass: rgba(255, 255, 255, 0.9);
 }
 
 @theme inline {
@@ -65,6 +68,7 @@
   --color-accent: var(--accent);
   --color-accent-ink: var(--accent-ink);
   --color-info: var(--info);
+  --color-param: var(--param);
 }
 
 @layer base {
@@ -136,12 +140,21 @@ button:disabled { opacity: .45; cursor: default; }
   min-height: 28px;
 }
 .chip:hover { border-color: var(--faint); }
-.chip-on, .chip-on:hover { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.chip-on, .chip-on:hover { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); font-weight: 600; }
 
 .seg { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 2px; gap: 2px; }
 .seg > button { padding: 4px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); white-space: nowrap; transition: background .15s, color .15s; }
 .seg > button:hover { color: var(--text); }
-.seg > button[aria-pressed="true"] { background: var(--panel); color: var(--text); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.seg > button[aria-pressed="true"] { background: var(--line); color: var(--accent); font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+:root[data-theme="light"] .seg > button[aria-pressed="true"] { background: var(--panel); }
+.seg { border-radius: 999px; }
+.seg > button { border-radius: 999px; }
+
+/* 三竹式的分頁列：選到的字變藍、下面一條藍線 */
+.tabbar { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); }
+.tabbar > button, .tabbar > a { flex: 1; padding: 10px 0 9px; font-size: 15px; color: var(--muted); border-bottom: 2.5px solid transparent; transition: color .15s, border-color .15s; white-space: nowrap; }
+.tabbar > [aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.param { color: var(--param); }
 
 .tag { display: inline-flex; align-items: center; padding: 0 6px; border-radius: 6px; font-size: 11px; line-height: 18px; white-space: nowrap; }
 .tag-accent { background: var(--accent-bg); color: var(--accent); }

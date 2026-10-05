@@ -418,7 +418,10 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
     codes = [c for c, g in daily_g.items() if g["date"].iloc[-1] == d and meta["kind"].get(c) != "index"]
     minute_raw = {}
     if tfs_needed & MINUTE_TFS:
-        minute_raw = load_minute_files(codes)
+        minute_raw = {c: v for c, v in load_minute_files(codes).items() if v}  # 只算真的有檔案的
+        if not minute_raw and not (live or {}).get("m1"):
+            raise RuntimeError("策略用到分K，但一檔分K 檔案都讀不到（請檢查 SUPABASE_URL / SUPABASE_SERVICE_KEY，"
+                               "或分K 還沒抓過）")
 
     hits: dict[int, list] = {i: [] for i in range(len(strategies))}
     # 條件漏斗：每條條件單獨通過幾檔、依序累積通過幾檔

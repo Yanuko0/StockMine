@@ -29,47 +29,81 @@ function Card({ title, right, children, className = "" }: { title: string; right
 }
 
 // ---------------- 大盤 ----------------
+const DIST_LABELS = ["<-5", "-5~", "-3~", "-2~", "-1~", "0", "~1", "~2", "~3", "~5", ">5"];
+
 function MarketStrip({ m }: { m: MarketSummary | null | undefined }) {
   if (m === undefined) return <div className="skeleton h-[92px]" />;
   if (!m) {
     return <div className="card p-4 text-sm text-muted">大盤總覽會在下一次收盤排程（每天 16:10）跑完後出現。</div>;
   }
   const b = m.breadth;
-  const total = b.up + b.down + b.flat || 1;
   const t = m.taiex;
+  const dist = b.dist;
+  const maxD = dist ? Math.max(1, ...dist) : 1;
+  const downAll = b.down, upAll = b.up;
+  const tot = b.up + b.down + b.flat || 1;
   return (
-    <section className="card p-4 grid gap-4 md:grid-cols-[1.3fr_1fr_1fr]">
-      <div className="flex items-center gap-4">
-        <div className="min-w-0">
-          <div className="section-title">加權指數　<span className="font-normal">{m.date}</span></div>
+    <div className="grid gap-3 md:grid-cols-2">
+      {/* 指數（三竹式的三格） */}
+      <section className="card p-2 grid grid-cols-3 gap-1 text-center">
+        <div className="rounded-xl bg-panel-2 py-2 px-1 min-w-0">
+          <div className="text-[15px] font-semibold">加權指</div>
           {t ? (
             <div className={cls(t.chg)}>
-              <div className="text-[28px] font-bold num leading-tight tracking-tight">{t.close.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-              <div className="text-sm num font-medium">{t.chg != null && (t.chg > 0 ? "▲" : t.chg < 0 ? "▼" : "")}{t.chg != null ? Math.abs(t.chg).toFixed(2) : "—"}　{pctTxt(t.pct)}</div>
+              <div className="text-[20px] font-semibold num leading-tight truncate">{t.close.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+              <div className="text-[12px] num truncate">{t.chg != null ? `${t.chg > 0 ? "▲" : t.chg < 0 ? "▼" : ""}${Math.abs(t.chg).toFixed(2)}` : "—"}({t.pct != null ? Math.abs(t.pct).toFixed(2) : "—"}%)</div>
             </div>
-          ) : <div className="text-muted text-sm mt-2">尚無指數資料</div>}
+          ) : <div className="text-muted text-sm mt-2">—</div>}
         </div>
-        {t && <div className="ml-auto hidden sm:block"><Spark data={t.spark} w={140} h={48} /></div>}
-      </div>
-      <div>
-        <div className="section-title mb-1.5">漲跌家數</div>
-        <div className="flex h-2.5 rounded-full overflow-hidden bg-panel-2">
-          <div className="bg-up" style={{ width: `${(b.up / total) * 100}%` }} />
-          <div className="bg-faint" style={{ width: `${(b.flat / total) * 100}%`, background: "var(--faint)" }} />
-          <div className="bg-down" style={{ width: `${(b.down / total) * 100}%` }} />
+        <div className="py-2 px-1 min-w-0">
+          <div className="text-[15px] font-semibold">成交值</div>
+          <div className="text-[20px] font-semibold num leading-tight">{n0(b.amount)}<span className="text-xs text-muted">億</span></div>
+          <div className="text-[12px] text-muted num truncate">市 {n0(b.twse_amount)}・櫃 {n0(b.tpex_amount)}</div>
         </div>
-        <div className="flex justify-between text-[13px] mt-1.5 num">
-          <span className="up">漲 {b.up}<span className="text-muted">（停 {b.limit_up}）</span></span>
-          <span className="text-muted">平 {b.flat}</span>
-          <span className="down">跌 {b.down}<span className="text-muted">（停 {b.limit_down}）</span></span>
+        <div className="py-2 px-1 min-w-0">
+          <div className="text-[15px] font-semibold">漲 / 跌</div>
+          <div className="text-[20px] font-semibold num leading-tight"><span className="up">{b.up}</span><span className="text-muted text-sm"> / </span><span className="down">{b.down}</span></div>
+          <div className="text-[12px] text-muted num">平 {b.flat}・{m.date.slice(5)}</div>
         </div>
-      </div>
-      <div>
-        <div className="section-title mb-1">成交值</div>
-        <div className="text-xl font-bold num">{n0(b.amount)}<span className="text-sm text-muted ml-1">億</span></div>
-        <div className="text-xs text-muted num">上市 {n0(b.twse_amount)}　上櫃 {n0(b.tpex_amount)}</div>
-      </div>
-    </section>
+        {t && <div className="col-span-3 px-2 pt-1"><Spark data={t.spark} w={300} h={44} fluid area /></div>}
+      </section>
+
+      {/* 市場漲跌 */}
+      <section className="card p-3">
+        <div className="grid grid-cols-4 text-center">
+          <div><div className="text-[14px]">跌停</div><div className="text-[22px] num down leading-tight">{b.limit_down}</div></div>
+          <div><div className="text-[14px]">創月新低</div><div className="text-[22px] num down leading-tight">{b.month_low ?? "—"}</div></div>
+          <div><div className="text-[14px]">創月新高</div><div className="text-[22px] num up leading-tight">{b.month_high ?? "—"}</div></div>
+          <div><div className="text-[14px]">漲停</div><div className="text-[22px] num up leading-tight">{b.limit_up}</div></div>
+        </div>
+        {dist && dist.length === 11 && (
+          <div className="mt-3">
+            <div className="grid grid-cols-11 gap-1 items-end h-[120px]">
+              {dist.map((n, i) => {
+                const c = i < 5 ? "var(--down)" : i === 5 ? "var(--faint)" : "var(--up)";
+                return (
+                  <div key={i} className="flex flex-col items-center justify-end h-full min-w-0">
+                    <span className="text-[11px] num" style={{ color: c }}>{n}</span>
+                    <div className="w-[70%] rounded-t-[3px]" style={{ height: `${Math.max(3, (n / maxD) * 88)}px`, background: c }} />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="grid grid-cols-11 gap-1 mt-1 text-center">
+              {DIST_LABELS.map((l, i) => (
+                <span key={l} className="text-[10px] num leading-tight" style={{ color: i < 5 ? "var(--down)" : i === 5 ? "var(--muted)" : "var(--up)" }}>{l}<br />%</span>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="flex gap-1 h-[5px] mt-3">
+          <div className="rounded-full bg-down" style={{ width: `${(downAll / tot) * 100}%` }} />
+          <div className="rounded-full" style={{ width: `${(b.flat / tot) * 100}%`, background: "var(--faint)" }} />
+          <div className="rounded-full bg-up" style={{ width: `${(upAll / tot) * 100}%` }} />
+        </div>
+        <div className="flex justify-between text-[16px] num mt-1"><span className="down">{downAll}</span><span className="up">{upAll}</span></div>
+      </section>
+    </div>
   );
 }
 
@@ -289,6 +323,9 @@ function Rankings({ m }: { m: MarketSummary }) {
   );
 }
 
+const JOB_LABEL: Record<string, string> = { eod: "盤後資料", minutes: "分鐘K", broker: "分點", screen: "選股",
+  "screen-now": "立即選股", intraday: "盤中選股", margin: "融資融券", backup: "備份", backfill: "補資料" };
+
 // ---------------- 頁面 ----------------
 export default function Home() {
   const [m, setM] = useState<MarketSummary | null | undefined>(undefined);
@@ -298,7 +335,10 @@ export default function Home() {
     getJobRuns(12).then(setRuns).catch(() => {});
   }, []);
   const latest = runs.find((r) => r.job === "eod" && r.status === "ok");
-  const errors = runs.filter((r) => r.status === "error").slice(0, 2);
+  // 只提醒「這項工作最近一次」還是失敗的（後來已經成功過的舊錯誤不用再顯示）
+  const lastByJob = new Map<string, (typeof runs)[number]>();
+  runs.forEach((r) => { if (!lastByJob.has(r.job)) lastByJob.set(r.job, r); });
+  const errors = [...lastByJob.values()].filter((r) => r.status === "error").slice(0, 2);
 
   return (
     <div className="page space-y-4">
@@ -314,7 +354,7 @@ export default function Home() {
       {errors.length > 0 && (
         <Link href="/settings" className="card p-3 text-sm flex gap-2 items-start" style={{ borderColor: "var(--up)" }}>
           <span className="up font-semibold shrink-0">排程錯誤</span>
-          <span className="text-muted truncate">{errors[0].run_date} {errors[0].job}：{errors[0].message?.slice(0, 100)}</span>
+          <span className="text-muted truncate">{errors[0].run_date} {JOB_LABEL[errors[0].job] ?? errors[0].job}：{errors[0].message?.slice(0, 100)}</span>
         </Link>
       )}
 

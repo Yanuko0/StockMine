@@ -194,7 +194,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
             <div className="flex-1 min-w-0 overflow-x-auto no-scrollbar">
               <div className="seg">
                 {TF_LIST.map((t, i) => (
-                  <button key={t.tf} aria-pressed={tf === t.tf} className={i === 6 ? "ml-1.5" : ""} onClick={() => setTf(t.tf)}>{t.label}</button>
+                  <button key={t.tf} aria-pressed={tf === t.tf} className={i === 3 ? "ml-1.5" : ""} onClick={() => setTf(t.tf)}>{t.label}</button>
                 ))}
               </div>
             </div>
@@ -215,7 +215,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
           <div className="relative flex-1 min-h-[50vh]">
             {d3On && d3 && daily.length > 1 && !loading && (
               <button onClick={() => setD3Info(!d3Info)} title="月扣三低：點開看 D1~D3"
-                className="absolute z-10 right-[72px] top-1.5 rounded-lg px-2 py-1 text-[11px] num glass border border-line text-left shadow"
+                className="hidden lg:block absolute z-10 right-[72px] top-1.5 rounded-lg px-2 py-1 text-[11px] num glass border border-line text-left shadow"
                 style={{ color: "var(--accent)" }}>
                 <b>月扣三低線 {d3.line.toFixed(2)}</b>・{d3Status}
                 <span className="text-muted">　{((daily[daily.length - 1].close / d3.line - 1) * 100).toFixed(1)}%</span>
@@ -323,11 +323,14 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
         <button className="icon-btn lg:hidden" onClick={() => (history.length > 1 ? router.back() : router.push("/"))} aria-label="返回">
           <Icon name="back" className="w-6 h-6" />
         </button>
-        <div className="min-w-0 flex items-baseline gap-2">
-          <span className="font-bold text-lg num">{code}</span>
-          <span className="font-bold truncate text-[17px]">{stock?.name}</span>
-          <span className="tag tag-muted">{stock?.market === "TPEX" ? "上櫃" : "上市"}{stock?.kind === "etf" ? "・ETF" : ""}</span>
-          {stock?.industry && <span className="tag tag-muted hidden sm:inline-flex">{stock.industry}</span>}
+        <div className="min-w-0 flex-1 lg:flex-none flex flex-col items-center lg:items-start lg:flex-row lg:items-baseline lg:gap-2">
+          <div className="flex items-baseline gap-1.5 min-w-0">
+            <span className="text-muted num text-[15px]">{code}</span>
+            <span className="font-bold truncate text-[18px]">{stock?.name}</span>
+          </div>
+          <span className="text-[12px] px-2 py-px rounded-md border border-line text-muted whitespace-nowrap">
+            {stock?.market === "TPEX" ? "上櫃" : "上市"}{stock?.kind === "etf" ? "-ETF" : stock?.industry ? `-${stock.industry}` : ""}
+          </span>
         </div>
         <div className="ml-auto flex items-center">
           <button className="icon-btn" onClick={() => openSearch()} title="搜尋（直接打股號）"><Icon name="search" /></button>
@@ -353,10 +356,9 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
       ) : (
         <>
           <QuoteHeader daily={daily} />
-          <div className="flex border-b border-line bg-panel">
-            {([["tech", "技術分析"], ["chips", "籌碼"], ["broker", "分點進出"]] as const).map(([k, l]) => (
-              <button key={k} className={`flex-1 py-2.5 text-sm border-b-2 transition-colors ${tab === k ? "text-accent border-accent font-semibold" : "text-muted border-transparent"}`}
-                onClick={() => setTab(k)}>{l}</button>
+          <div className="tabbar" role="tablist">
+            {([["tech", "技術"], ["chips", "籌碼"], ["broker", "進出"]] as const).map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
             ))}
           </div>
           {tab === "tech" && tech}

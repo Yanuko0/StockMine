@@ -8,9 +8,10 @@ export interface Bar {
 
 export type TF = "1m" | "3m" | "5m" | "15m" | "30m" | "60m" | "D" | "W" | "M";
 export const TF_LIST: { tf: TF; label: string }[] = [
-  { tf: "1m", label: "1分" }, { tf: "3m", label: "3分" }, { tf: "5m", label: "5分" },
-  { tf: "15m", label: "15分" }, { tf: "30m", label: "30分" }, { tf: "60m", label: "60分" },
+  // 跟三竹一樣：日 / 週 / 月在前，再來是分K
   { tf: "D", label: "日" }, { tf: "W", label: "週" }, { tf: "M", label: "月" },
+  { tf: "60m", label: "60分" }, { tf: "30m", label: "30分" }, { tf: "15m", label: "15分" },
+  { tf: "5m", label: "5分" }, { tf: "3m", label: "3分" }, { tf: "1m", label: "1分" },
 ];
 export const MINUTES: Partial<Record<TF, number>> = { "1m": 1, "3m": 3, "5m": 5, "15m": 15, "30m": 30, "60m": 60 };
 

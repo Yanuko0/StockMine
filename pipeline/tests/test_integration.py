@@ -3,7 +3,7 @@
 """
 import json
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import numpy as np
 import pandas as pd
@@ -117,6 +117,25 @@ def test_eod_and_screen(monkeypatch):
         fn = r2["meta"][0]["funnel"]
         assert len(fn["single"]) == len(cond["conditions"]) and fn["cumul"][-1] == 1
 
+        # 盤中（立即選股）：60分K 策略、這檔還沒有分K 歷史檔，只有今天的 1分K → 不能當掉
+        trend = {"logic": "AND", "conditions": [{"kind": "compare", "tf": "60m", "left": {"src": "close"}, "op": ">", "right": {"src": "value", "v": 1}}]}
+        sid = db.query_df(conn, "insert into public.strategies (name, conditions, owner) values (%s, %s, %s) returning id",
+                          ("盤中", json.dumps(trend), uid))["id"][0]
+        conn.commit()
+        nd = d + timedelta(days=1)
+        monkeypatch.setattr(cli, "load_minute_files", lambda codes: {})
+        tm1 = pd.DataFrame({"ts": pd.to_datetime([f"{nd} 09:01", f"{nd} 09:02"]), "open": [1000.0, 1001], "high": [1002.0, 1003],
+                            "low": [999.0, 1000], "close": [1001.0, 1002], "volume": [10.0, 20]})
+        live = {"ts": datetime(nd.year, nd.month, nd.day, 9, 3, tzinfo=__import__("twstock.config", fromlist=["x"]).TW_TZ),
+                "today": pd.DataFrame([{"code": "2330", "open": 1000.0, "high": 1003.0, "low": 999.0, "close": 1002.0, "volume": 30_000.0}]),
+                "m1": {"2330": tm1}, "usage": "", "approx_since": None}
+        lm = cli.job_screen(nd, only=[str(sid)], live=live)
+        assert "1 個策略（1 檔；分K 讀到 1 檔" in lm, lm
+        conn.commit()
+        lv = db.query_df(conn, "select items from public.screen_live where strategy_id = %s", (sid,))
+        assert [x["code"] for x in lv["items"][0]] == ["2330"]
+        db.execute(conn, "delete from public.strategies where id = %s", (sid,))
+
         # 全市場分點：mock 證交所，pool 裡的 2330 只存主力買賣超
         from twstock import config as cfg
         from twstock.sources import broker as bsrc
@@ -163,6 +182,8 @@ def test_eod_and_screen(monkeypatch):
         from twstock import summary
         sm = summary.compute(conn, d)
         assert sm["breadth"]["up"] >= 1 and sm["date"] == d.isoformat()
+        assert len(sm["breadth"]["dist"]) == 11 and sum(sm["breadth"]["dist"]) == sm["breadth"]["up"] + sm["breadth"]["down"] + sm["breadth"]["flat"]
+        assert "month_high" in sm["breadth"], sm["breadth"]
         assert sm["inst"]["foreign_buy"][0]["code"] in ("2330", "6488")
         s2 = db.query_df(conn, "select code, industry, shares from public.stocks where code='6488'")
         assert s2["industry"][0] == "半導體業" and int(s2["shares"][0]) == 478000000

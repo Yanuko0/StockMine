@@ -1,7 +1,7 @@
 // 顏色（不依賴 klinecharts）。圖表的線色會跟著主題換：這些物件在切換主題時「原地」更新，
 // 圖表繪製時才讀取，所以不用重新建立指標。
-export const UP = "#ff4d4f";
-export const DOWN = "#1fc77e";
+export const UP = "#ff3b3b";
+export const DOWN = "#2fd55a";
 
 /** 均線預設：5 黃、10 藍、20 紫、60 綠、120 白、240 紅（可以在「參數」裡改） */
 export interface MaLine { n: number; color: string; on: boolean }

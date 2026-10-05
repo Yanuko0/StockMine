@@ -520,7 +520,8 @@ export interface RankRow { code: string; name: string; close: number; pct: numbe
 export interface MarketSummary {
   date: string; prev_date: string;
   taiex: { close: number; chg: number | null; pct: number | null; spark: number[] } | null;
-  breadth: { up: number; down: number; flat: number; limit_up: number; limit_down: number; amount: number; twse_amount: number; tpex_amount: number };
+  breadth: { up: number; down: number; flat: number; limit_up: number; limit_down: number; amount: number; twse_amount: number; tpex_amount: number;
+    dist?: number[]; month_high?: number; month_low?: number };
   industries: { name: string; count: number; up: number; down: number; pct: number; avg: number; leader: { code: string; name: string; pct: number } }[];
   inst: Partial<Record<"foreign_buy" | "foreign_sell" | "trust_buy" | "trust_sell", RankRow[]>>;
   movers: Partial<Record<"gainers" | "losers" | "amount", RankRow[]>>;

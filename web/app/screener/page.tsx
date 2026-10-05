@@ -6,6 +6,8 @@ import StrategyEditor from "@/components/StrategyEditor";
 import GroupManager from "@/components/GroupManager";
 import Funnel from "@/components/Funnel";
 import Diagnose from "@/components/Diagnose";
+import Icon from "@/components/ui/Icon";
+import { condText } from "@/lib/condText";
 import {
   deleteStrategy, getGroups, getLive, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
 } from "@/lib/data";
@@ -33,24 +35,42 @@ function fmtCap(v: number | null | undefined) {
 }
 
 function ItemRow({ it, leader }: { it: ScreenItem; leader?: boolean }) {
+  const pct = it.chg_pct ?? 0;
+  const chg = it.chg_pct == null ? null : it.close - it.close / (1 + pct / 100);
+  const cls = pct > 0 ? "up" : pct < 0 ? "down" : "";
   return (
-    <Link href={`/stock/${it.code}`} onMouseEnter={() => prefetchDaily(it.code)} className="flex items-center px-4 py-2.5 gap-1 row-hover">
-      <span className="font-bold w-14">{it.code}</span>
+    <Link href={`/stock/${it.code}`} onMouseEnter={() => prefetchDaily(it.code)} className="flex items-center px-4 py-2.5 gap-3 row-hover">
       <span className="flex-1 min-w-0">
-        <span className="block truncate">
-          {it.name}{leader && <span className="ml-1 text-[10px] px-1 rounded bg-accent text-accent-ink align-middle">龍頭</span>}
+        <span className="flex items-center gap-1.5">
+          <span className="text-[17px] font-semibold truncate">{it.name}</span>
+          {leader && <span className="text-[10px] px-1 rounded bg-accent text-accent-ink shrink-0">龍頭</span>}
         </span>
-        <span className="flex flex-wrap gap-1 text-[11px] text-muted">
-          {fmtCap(it.mcap) && <span>市值 {fmtCap(it.mcap)}</span>}
-          {it.tags?.map((t) => <span key={t} className="px-1 rounded border border-accent text-accent whitespace-nowrap">{t}</span>)}
+        <span className="flex items-center gap-1.5 text-[12px] text-muted mt-0.5 min-w-0">
+          <span className="num">{it.code}</span>
+          {it.industry && <span className="truncate border-l border-line pl-1.5">{it.industry}</span>}
+          {fmtCap(it.mcap) && <span className="whitespace-nowrap">・{fmtCap(it.mcap)}</span>}
         </span>
+        {it.tags && it.tags.length > 0 && (
+          <span className="flex flex-wrap gap-1 mt-1">
+            {it.tags.map((t) => <span key={t} className="text-[11px] px-1.5 rounded-md border border-accent text-accent whitespace-nowrap">{t}</span>)}
+          </span>
+        )}
       </span>
-      <span className="tabular-nums w-16 text-right">{it.close.toFixed(2)}</span>
-      <span className={`tabular-nums w-16 text-right ${(it.chg_pct ?? 0) > 0 ? "up" : (it.chg_pct ?? 0) < 0 ? "down" : ""}`}>
-        {it.chg_pct == null ? "-" : `${it.chg_pct > 0 ? "+" : ""}${it.chg_pct.toFixed(2)}%`}
+      <span className="text-right shrink-0">
+        <span className={`block text-[19px] font-semibold num leading-tight ${cls}`}>{it.close.toFixed(2)}</span>
+        <span className={`block text-[13px] num ${cls}`}>
+          {chg == null ? "-" : `${pct > 0 ? "▲" : pct < 0 ? "▼" : ""}${Math.abs(chg).toFixed(2)}(${Math.abs(pct).toFixed(2)}%)`}
+        </span>
+        <span className="block text-[11px] text-muted num">總 {it.volume.toLocaleString()}</span>
       </span>
     </Link>
   );
+}
+
+/** 條件文字裡的數字用黃色標出來（三竹的樣子） */
+function HL({ text }: { text: string }) {
+  const parts = text.split(/(\d[\d,.]*)/);
+  return <>{parts.map((p, i) => (i % 2 ? <span key={i} className="param num">{p}</span> : <span key={i}>{p}</span>))}</>;
 }
 
 function Screener() {
@@ -154,50 +174,68 @@ function Screener() {
   }
 
 
+  const runAt = day?.meta?.run_at ? new Date(day.meta.run_at) : null;
+  const tw = runAt ? new Date(runAt.getTime() + 8 * 3600e3).toISOString() : "";
+  const stamp = day ? (day.label ?? (tw ? `${tw.slice(5, 10).replace("-", "/")} ${tw.slice(11, 16)} 更新` : day.date.slice(5).replace("-", "/"))) : "";
+
   return (
-    <div className="page space-y-4">
-      <header className="flex items-center gap-2 pt-1" style={{ paddingTop: "max(4px, env(safe-area-inset-top))" }}>
+    <div className="max-w-[900px] mx-auto pb-4">
+      <header className="flex items-center gap-2 px-4 pb-1" style={{ paddingTop: "max(10px, env(safe-area-inset-top))" }}>
         <h1 className="text-[22px] font-bold tracking-tight">選股</h1>
-        <button className="btn ml-auto" onClick={() => setGroupOpen(true)}>自訂族群</button>
-        <button className="btn btn-primary" onClick={() => setEditing("new")}>＋ 新策略</button>
+        <button className="btn btn-sm ml-auto" onClick={() => setGroupOpen(true)}>自訂族群</button>
       </header>
 
-      <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)] items-start">
-        {/* 左：策略 */}
-        <div className="space-y-3 lg:sticky lg:top-4">
-          <div className="flex lg:flex-col gap-2 overflow-x-auto no-scrollbar lg:overflow-visible">
-            {list.map((s) => (
-              <button key={s.id} onClick={() => { setSel(s.id); setTagFilter(null); }}
-                className={`shrink-0 text-left rounded-xl border px-3 py-2 lg:py-2.5 transition-colors ${sel === s.id ? "border-accent bg-panel" : "border-line bg-panel hover:border-faint"}`}
-                style={sel === s.id ? { boxShadow: "0 0 0 3px var(--accent-bg)" } : undefined}>
-                <span className="block font-semibold whitespace-nowrap lg:whitespace-normal">{s.name}</span>
-                <span className="hidden lg:block text-xs text-muted">{s.conditions.conditions.length} 個條件{s.notify ? "・推播" : ""}</span>
+      {/* 策略：橫向一排（三竹的樣子） */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar px-4 py-2 border-b border-line">
+        <button onClick={() => setEditing("new")} title="新策略"
+          className="shrink-0 w-[72px] h-[64px] rounded-xl bg-panel-2 flex items-center justify-center text-muted">
+          <Icon name="plus" className="w-7 h-7" />
+        </button>
+        {list.map((s) => (
+          <button key={s.id} onClick={() => { setSel(s.id); setTagFilter(null); }}
+            className={`shrink-0 w-[84px] h-[64px] rounded-xl px-2 text-[15px] leading-tight font-medium border transition-colors ${sel === s.id ? "border-accent text-accent bg-[var(--accent-bg)]" : "border-transparent bg-panel-2"}`}>
+            <span className="line-clamp-2 break-all">{s.name}</span>
+          </button>
+        ))}
+      </div>
+      {list.length === 0 && <p className="text-muted text-sm px-4 py-4">還沒有策略。按左上的「＋」設定你的條件，或從範本開始。</p>}
+
+      {cur && (
+        <>
+          {/* 條件列表：數字黃色、點一下可以編輯 */}
+          <div className="divide border-b border-line">
+            {cur.conditions.conditions.map((c, i) => (
+              <button key={i} className="w-full flex items-center gap-2 px-4 py-3 text-left text-[16px] row-hover" onClick={() => cur.owner === uid && setEditing(cur)}>
+                <span className="flex-1 min-w-0"><HL text={condText(c)} /></span>
+                <Icon name="chevron" className="w-5 h-5 text-accent shrink-0" />
               </button>
             ))}
           </div>
-          {list.length === 0 && <p className="text-muted text-sm">還沒有策略。按「新策略」設定你的技術分析條件，例如：60分K 收盤 &gt; MA60、60分K KD(60,3,3) 的 K &gt; 50、月扣三低突破。也可以從範本開始。</p>}
+          {cur.conditions.note && <p className="px-4 py-2 text-[13px] text-muted whitespace-pre-wrap border-b border-line">{cur.conditions.note}</p>}
 
-          {cur && (
-            <div className="card p-3 text-sm space-y-1.5">
-              <div className="flex items-center">
-                <span className="font-semibold">{cur.name}</span>
-                {cur.owner === uid && (
-                  <span className="ml-auto flex gap-1">
-                    <button className="btn btn-sm" onClick={() => setEditing(cur)}>編輯</button>
-                    <button className="btn btn-sm btn-ghost text-muted" onClick={async () => { if (confirm("確定刪除這個策略？")) { await deleteStrategy(cur.id); setSel(null); load(); } }}>刪除</button>
-                  </span>
-                )}
-              </div>
-              <div className="text-muted text-xs">{cur.conditions.logic === "OR" ? "任一成立" : "全部成立"}・{cur.conditions.conditions.length} 個條件{cur.notify ? "・推播" : ""}・只有你看得到</div>
-              {cur.conditions.note && <div className="whitespace-pre-wrap text-[13px] leading-relaxed">{cur.conditions.note}</div>}
-            </div>
-          )}
-        </div>
+          {/* 時間、立即選股、編輯 */}
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line">
+            <button className="btn btn-primary btn-sm" disabled={!!running} onClick={() => runNow(cur.id)}>
+              {running?.id === cur.id ? "選股中…" : "立即選股"}
+            </button>
+            <span className="text-xs text-muted min-w-0 truncate">
+              {running?.id === cur.id ? "用最新資料篩選中，約 1~4 分鐘"
+                : running ? `「${list.find((x) => x.id === running.id)?.name ?? ""}」選股中`
+                : cur.conditions.logic === "OR" ? "任一條件成立" : "全部條件成立"}
+            </span>
+            <span className="ml-auto text-[13px] num text-muted whitespace-nowrap">{stamp}</span>
+            {cur.owner === uid && (
+              <>
+                <button className="btn btn-sm btn-ghost" onClick={() => setEditing(cur)}>編輯</button>
+                <button className="btn btn-sm btn-ghost text-muted" onClick={async () => { if (confirm("確定刪除這個策略？")) { await deleteStrategy(cur.id); setSel(null); load(); } }}>刪除</button>
+              </>
+            )}
+          </div>
+          {runMsg && <p className="text-xs up px-4 pt-2">{runMsg}</p>}
 
-        {/* 右：結果 */}
-        <div className="space-y-3 min-w-0">
-          {shown.length > 0 && (
-            <div className="overflow-x-auto no-scrollbar">
+          {/* 歷史日期 */}
+          {shown.length > 1 && (
+            <div className="overflow-x-auto no-scrollbar px-4 pt-2.5">
               <div className="seg">
                 {shown.map((r, i) => (
                   <button key={r.label ?? r.date} aria-pressed={i === dayIdx} onClick={() => { setDayIdx(i); setTagFilter(null); }}>
@@ -207,36 +245,28 @@ function Screener() {
               </div>
             </div>
           )}
-          {cur && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <button className="btn btn-primary btn-sm" disabled={!!running} onClick={() => runNow(cur.id)}>
-                {running?.id === cur.id ? "選股中…" : "立即選股"}
-              </button>
-              <span className="text-xs text-muted">
-                {running?.id === cur.id ? "正在用最新資料篩選，約 2~4 分鐘，完成後自動顯示"
-                  : running ? `「${list.find((x) => x.id === running.id)?.name ?? ""}」選股中，完成後才能再按`
-                  : "盤中用盤中價格、盤後用最新收盤資料，馬上篩一次"}
-              </span>
-            </div>
-          )}
-          {runMsg && <p className="text-xs up">{runMsg}</p>}
-          {cur && shown.length === 0 && !running && <div className="card p-6 text-center text-muted text-sm">還沒有篩選結果。按「立即選股」馬上篩一次，或等每天收盤後的排程。</div>}
+
+          {shown.length === 0 && !running && <div className="px-4 py-8 text-center text-muted text-sm">還沒有篩選結果。按「立即選股」馬上篩一次，或等每天收盤後的排程。</div>}
 
           {day?.meta?.minute_codes != null && day.meta.minute_codes < day.meta.total && (
-            <p className="text-xs text-accent">這個策略含分K 條件：這天只有 {day.meta.minute_codes} / {day.meta.total} 檔有分K 資料，其他股票不會被選出（補歷史分K 完成後就是全市場）。</p>
+            <p className="text-xs text-accent px-4 pt-2">這個策略含分K 條件：這天只有 {day.meta.minute_codes} / {day.meta.total} 檔有分K 資料，其他股票不會被選出。</p>
           )}
           {day?.meta?.empty_groups?.length ? (
-            <p className="text-xs text-accent">自訂族群「{day.meta.empty_groups.join("、")}」還沒有股票，這個前提暫時沒有作用。按右上「自訂族群」加入股票。</p>
+            <p className="text-xs text-accent px-4 pt-2">自訂族群「{day.meta.empty_groups.join("、")}」還沒有股票，這個前提暫時沒有作用。按右上「自訂族群」加入股票。</p>
           ) : null}
 
-          {day && day.items.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="seg">
-                <button aria-pressed={grouped} onClick={() => setGrouped(true)}>分族群</button>
-                <button aria-pressed={!grouped} onClick={() => setGrouped(false)}>不分組</button>
-              </div>
+          {/* 共 N 檔 */}
+          {day && (
+            <div className="flex items-center gap-2 px-4 py-2.5 flex-wrap">
+              <span className="text-[16px]">共 <span className="param num font-semibold">{items.length}</span> 檔</span>
+              {day.items.length > 0 && (
+                <div className="seg ml-auto">
+                  <button aria-pressed={grouped} onClick={() => setGrouped(true)}>分族群</button>
+                  <button aria-pressed={!grouped} onClick={() => setGrouped(false)}>不分組</button>
+                </div>
+              )}
               {tags.length > 0 && (
-                <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                <div className="w-full flex gap-1.5 overflow-x-auto no-scrollbar">
                   <button className={`chip ${!tagFilter ? "chip-on" : ""}`} onClick={() => setTagFilter(null)}>全部 {day.items.length}</button>
                   {tags.map((t) => (
                     <button key={t} className={`chip ${tagFilter === t ? "chip-on" : ""}`} onClick={() => setTagFilter(tagFilter === t ? null : t)}>
@@ -247,11 +277,11 @@ function Screener() {
               )}
             </div>
           )}
-          {day && day.items.length === 0 && <div className="card p-6 text-center text-muted text-sm">這天沒有符合的股票，看下面的「條件漏斗」是哪一條刷掉的</div>}
-          {day?.meta && cur && <Funnel conds={cur.conditions.conditions} logic={cur.conditions.logic} meta={day.meta} defaultOpen={day.items.length === 0} />}
-          {day?.meta?.diag && cur && <Diagnose conds={cur.conditions.conditions} diag={day.meta.diag} />}
+
+          {day && day.items.length === 0 && <div className="px-4 pb-4 text-center text-muted text-sm">這天沒有符合的股票，看下面的「條件漏斗」是哪一條刷掉的</div>}
+
           {day && grouped && (
-            <div className="grid gap-3 xl:grid-cols-2 items-start">
+            <div className="space-y-3 px-3">
               {shownGroups.map((g) => (
                 <div key={g.name} className="card overflow-hidden">
                   <div className="card-h text-sm">
@@ -265,12 +295,17 @@ function Screener() {
             </div>
           )}
           {day && !grouped && items.length > 0 && (
-            <div className="card divide">
+            <div className="divide border-y border-line bg-panel">
               {items.map((it) => <ItemRow key={it.code} it={it} />)}
             </div>
           )}
-        </div>
-      </div>
+
+          <div className="space-y-3 px-3 pt-3">
+            {day?.meta && <Funnel conds={cur.conditions.conditions} logic={cur.conditions.logic} meta={day.meta} defaultOpen={day.items.length === 0} />}
+            {day?.meta?.diag && <Diagnose conds={cur.conditions.conditions} diag={day.meta.diag} />}
+          </div>
+        </>
+      )}
       {groupOpen && <GroupManager groups={groups} onClose={() => { setGroupOpen(false); getGroups().then(setGroups); }} />}
     </div>
   );

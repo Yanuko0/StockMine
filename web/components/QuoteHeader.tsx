@@ -66,10 +66,33 @@ export default function QuoteHeader({ daily, side = false }: { daily: Bar[]; sid
       </div>
     );
   }
+  // 手機：三竹式的報價區（大字價格＋漲跌，右邊總量 / 昨量 / 量比）
+  const prevVol = prev?.volume ?? 0;
+  const ratio = avgVol ? last.volume / avgVol : 0;
   return (
-    <div className="flex gap-3 px-3 py-2 bg-panel border-b border-line">
-      <div className="min-w-[7.5rem]">{price}</div>
-      <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-0.5 text-xs">{cells}</div>
+    <div className="px-3 pt-1.5 pb-2 bg-panel border-b border-line">
+      <div className="flex items-end gap-3">
+        <div className={`flex-1 min-w-0 ${cls}`}>
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-[38px] leading-none font-semibold num tracking-tight">{fmt(last.close)}</span>
+            <span className="text-[17px] num whitespace-nowrap">{chg > 0 ? "▲" : chg < 0 ? "▼" : ""}{fmt(Math.abs(chg))}({fmt(pct)}%)</span>
+            {(hitUp || hitDown) && <span className={`text-xs px-1.5 py-0.5 rounded ${hitUp ? "bg-up" : "bg-down"} text-white`}>{hitUp ? "漲停" : "跌停"}</span>}
+          </div>
+        </div>
+        <div className="grid grid-cols-[auto_auto] gap-x-3 text-[13px] leading-[1.55] num shrink-0">
+          <span className="text-muted">總　量</span><span className="text-right">{last.volume.toLocaleString()}</span>
+          <span className="text-muted">昨　量</span><span className="text-right">{prevVol.toLocaleString()}</span>
+          <span className="text-muted">量　比</span><span className={`text-right ${ratio > 1 ? "up" : ratio ? "down" : ""}`}>{ratio ? fmt(ratio) : "-"}</span>
+        </div>
+      </div>
+      <div className="flex gap-3 mt-1.5 text-[12px] num text-muted overflow-x-auto no-scrollbar whitespace-nowrap">
+        <span>開 <span className={px(last.open)}>{fmt(last.open)}</span></span>
+        <span>高 <span className={px(last.high)}>{fmt(last.high)}</span></span>
+        <span>低 <span className={px(last.low)}>{fmt(last.low)}</span></span>
+        <span>昨收 <span className="text-text">{fmt(prev?.close)}</span></span>
+        <span>振幅 <span className="text-text">{fmt(amp)}%</span></span>
+        <span>{last.date?.slice(5)} 收盤</span>
+      </div>
     </div>
   );
 }

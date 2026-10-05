@@ -54,11 +54,11 @@ export function registerAll() {
     shouldOhlc: true,
     extendData: { deduct: true, offset: 0, d3: null },
     regenerateFigures: (params) => params.map((n) => ({
-      key: `ma${n}`, title: `MA${n}: `, type: "line",
+      key: `ma${n}`, title: `${n}T:`, type: "line",
       styles: () => ({ color: maColor(n) }),
     })),
     figures: [5, 10, 20, 60].map((n) => ({
-      key: `ma${n}`, title: `MA${n}: `, type: "line", styles: () => ({ color: maColor(n) }),
+      key: `ma${n}`, title: `${n}T:`, type: "line", styles: () => ({ color: maColor(n) }),
     })),
     calc: (data: KLineData[], ind) => {
       const close = data.map((d) => d.close);
@@ -276,11 +276,11 @@ export function registerAll() {
 export const CHART_FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", "Segoe UI", sans-serif';
 function stylesOf(t: "dark" | "light") {
   const L = t === "light";
-  const grid = L ? "#eef0f3" : "#1a2028";
-  const axis = L ? "#d5d9de" : "#2a313b";
-  const tick = L ? "#6b7480" : "#8b93a1";
-  const tip = L ? "#2b3038" : "#d9dde3";
-  const cross = L ? "#5c6470" : "#3a424d";
+  const grid = L ? "#eef0f3" : "#262626";
+  const axis = L ? "#d5d9de" : "#333333";
+  const tick = L ? "#6b7480" : "#9b9b9b";
+  const tip = L ? "#2b3038" : "#e6e6e6";
+  const cross = L ? "#5c6470" : "#4a4a4a";
   const f = CHART_FONT;
   const txt = { color: tip, family: f, size: 12 };
   return {
@@ -296,8 +296,9 @@ function stylesOf(t: "dark" | "light") {
       tooltip: { showRule: "follow_cross", title: { ...txt }, legend: { ...txt } },
     },
     indicator: {
-      bars: [{ upColor: "rgba(255,77,79,0.72)", downColor: "rgba(31,199,126,0.72)", noChangeColor: tick }],
-      tooltip: { title: { ...txt, color: tick }, legend: { ...txt } },
+      bars: [{ upColor: "rgba(255,59,59,0.78)", downColor: "rgba(47,213,90,0.78)", noChangeColor: tick }],
+      // 指標數值（例如 5T:178.70）用各條線自己的顏色，跟三竹一樣
+      tooltip: { title: { ...txt, color: tick, showParams: false }, legend: { family: f, size: 12 } },
       lastValueMark: { text: { family: f } },
     },
     xAxis: { tickText: { color: tick, family: f, size: 11 }, axisLine: { color: axis }, tickLine: { color: axis } },

@@ -67,6 +67,35 @@ def compute(conn, d: date) -> dict | None:
         "tpex_amount": round(float(today[today["market"] == "TPEX"]["amount"].sum() / 1e8), 1),
     }
 
+    # 漲跌幅分布（三竹的長條圖）：<-5、-5~-3、-3~-2、-2~-1、-1~0、0、0~1、1~2、2~3、3~5、>5
+    edges = [-5, -3, -2, -1, 0]
+    p_ = st["pct"].round(2)
+    dist = [int((p_ < -5).sum())]
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        dist.append(int(((p_ >= lo) & (p_ < hi)).sum()))
+    dist.append(int((p_ == 0).sum()))
+    for lo, hi in [(0, 1), (1, 2), (2, 3), (3, 5)]:
+        dist.append(int(((p_ > lo) & (p_ <= hi)).sum()))
+    dist.append(int((p_ > 5).sum()))
+    breadth["dist"] = dist
+
+    # 創月新高 / 新低：今天最高（最低）超過前 20 個交易日的最高（最低）
+    try:
+        hl = db.query_df(conn, """select code, date, high, low from public.daily_prices
+                                  where code <> 'TAIEX' and date <= %s and date > %s""", (d, d - timedelta(days=45)))
+        hl["high"] = pd.to_numeric(hl["high"], errors="coerce")
+        hl["low"] = pd.to_numeric(hl["low"], errors="coerce")
+        days = sorted(hl["date"].unique())[-21:]
+        hl = hl[hl["date"].isin(days)]
+        cur = hl[hl["date"] == d].set_index("code")
+        past = hl[hl["date"] != d].groupby("code").agg(h=("high", "max"), l=("low", "min"))
+        j = cur.join(past, how="inner")
+        j = j[j.index.isin(st["code"])]
+        breadth["month_high"] = int((j["high"] > j["h"]).sum())
+        breadth["month_low"] = int((j["low"] < j["l"]).sum())
+    except Exception:  # noqa: BLE001
+        pass
+
     # 產業漲跌
     inds = []
     for name, g in st[st["industry"].notna()].groupby("industry"):
