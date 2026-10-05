@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { sb } from "@/lib/supabase";
 import { getJobRuns, getSetting, me, myName, setSetting } from "@/lib/data";
 import { getThemePref, setThemePref, type ThemePref } from "@/lib/theme";
+import InstallApp from "@/components/InstallApp";
 
 function b64ToBytes(s: string) {
   const pad = "=".repeat((4 - (s.length % 4)) % 4);
@@ -13,7 +14,7 @@ function b64ToBytes(s: string) {
 
 const JOB_NAMES: Record<string, string> = {
   eod: "日K／法人", minutes: "分鐘K", broker: "分點", screen: "選股", margin: "融資融券", backup: "備份",
-  "backfill-daily": "補日K", "backfill-minutes": "補分鐘K",
+  "backfill-daily": "補日K", "backfill-minutes": "補分鐘K", "screen-now": "立即選股", intraday: "盤中選股",
 };
 
 export default function Settings() {
@@ -106,9 +107,11 @@ export default function Settings() {
           </select>
         </label>
         <button className="btn btn-primary" onClick={async () => {
-          await setSetting("deduct3low", { ma: Math.max(4, d3) });
-          await setSetting("deduct_offset", offset);
-          setMsg("扣抵設定已儲存");
+          try {
+            await setSetting("deduct3low", { ma: Math.max(4, d3) });
+            await setSetting("deduct_offset", offset);
+            setMsg("扣抵設定已儲存");
+          } catch { setMsg("只有管理員可以改共用設定"); }
         }}>儲存</button>
         <p className="text-xs text-muted">若扣抵位置跟三竹智選股差一根，切換「扣抵位置」即可對齊。</p>
       </section>
@@ -124,26 +127,25 @@ export default function Settings() {
         )}
       </section>
 
-      <section className="card p-4 space-y-2 text-sm">
-        <h2 className="font-bold">安裝到手機桌面</h2>
-        <p><b>iPhone：</b>用 Safari 開啟 → 下方「分享」按鈕 → 「加入主畫面」。</p>
-        <p><b>Android：</b>用 Chrome 開啟 → 右上角選單 → 「安裝應用程式」或「加到主畫面」。</p>
-      </section>
+      <div id="install"><InstallApp /></div>
 
       <section className="card p-4 space-y-2">
         <h2 className="font-bold">排程紀錄</h2>
-        <table className="tbl">
-          <thead><tr><th>日期</th><th>工作</th><th>狀態</th></tr></thead>
+        <div className="overflow-x-auto -mx-4 px-4">
+        <table className="tbl table-fixed">
+          <colgroup><col className="w-14" /><col className="w-20" /><col /></colgroup>
+          <thead><tr><th>日期</th><th className="text-left!">工作</th><th className="text-left!">狀態</th></tr></thead>
           <tbody>
             {runs.map((r) => (
               <tr key={r.id}>
-                <td>{r.run_date.slice(5)}</td>
-                <td>{JOB_NAMES[r.job] ?? r.job}</td>
-                <td className={`${r.status === "error" ? "up" : ""} text-left! whitespace-normal`}>{r.status === "ok" ? "✓ " : r.status === "skipped" ? "－ " : "✗ "}{r.message}</td>
+                <td className="align-top">{r.run_date.slice(5)}</td>
+                <td className="text-left! align-top">{JOB_NAMES[r.job] ?? r.job}</td>
+                <td className={`${r.status === "error" ? "up" : ""} text-left! whitespace-normal break-words align-top`}>{r.status === "ok" ? "✓ " : r.status === "skipped" ? "－ " : "✗ "}{r.message}</td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </section>
 
       <button className="btn w-full" onClick={async () => { await sb().auth.signOut(); router.replace("/login"); }}>登出</button>

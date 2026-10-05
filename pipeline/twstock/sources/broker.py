@@ -36,6 +36,19 @@ def _solve(img: bytes) -> str:
     return re.sub(r"[^A-Za-z0-9]", "", txt).upper()
 
 
+def decode_csv(data: bytes) -> str:
+    """證交所分點 CSV 以前是 Big5（cp950），現在改成 UTF-8：先試 UTF-8，不行再用 cp950。"""
+    try:
+        return data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return data.decode("cp950", errors="replace")
+
+
+def good_name(name: str) -> bool:
+    """名稱沒有亂碼（解不出來的字）才拿來更新分點名稱表。"""
+    return bool(name) and "\ufffd" not in name
+
+
 def parse_bsr_csv(text: str) -> pd.DataFrame:
     """把證交所分點 CSV 轉成每筆成交：broker_id, broker_name, price, buy, sell。"""
     rows = []
@@ -81,7 +94,7 @@ def fetch_twse_broker(code: str, max_tries: int = 8) -> pd.DataFrame | None:
                     a = s2.find(id="HyperLink_DownloadCSV")
                     href = a.get("href") if a and a.get("href") else "bsContent.aspx"
                     csv_bytes = c.get(BSR + href).content
-                    return parse_bsr_csv(csv_bytes.decode("cp950", errors="ignore"))
+                    return parse_bsr_csv(decode_csv(csv_bytes))
                 if "查無資料" in r2.text:
                     return pd.DataFrame(columns=["broker_id", "broker_name", "price", "buy", "sell"])
                 # 驗證碼錯誤 → 重試

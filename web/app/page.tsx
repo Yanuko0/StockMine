@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { memo, useEffect, useMemo, useState } from "react";
 import Icon from "@/components/ui/Icon";
+import { InstallBanner } from "@/components/InstallApp";
 import Spark from "@/components/ui/Spark";
 import { openSearch } from "@/components/SearchPalette";
 import {
@@ -358,6 +359,7 @@ export default function Home() {
         </Link>
       )}
 
+      <InstallBanner />
       <MarketStrip m={m} />
 
       <div className="grid gap-4 lg:grid-cols-3">

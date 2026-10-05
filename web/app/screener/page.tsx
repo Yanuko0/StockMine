@@ -161,7 +161,7 @@ function Screener() {
 
   if (editing) {
     return (
-      <div className="page-narrow">
+      <div>
         <StrategyEditor initial={editing === "new" ? undefined : editing} onCancel={() => setEditing(null)}
           onSave={async (s) => {
             const id = await saveStrategy(s);

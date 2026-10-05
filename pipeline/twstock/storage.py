@@ -11,7 +11,11 @@ BUCKET = "minute"
 
 
 def _base() -> str:
-    return config.env("SUPABASE_URL", required=True).rstrip("/") + "/storage/v1/object"
+    # 只要 https://xxxx.supabase.co；不小心貼成 Data API 的 …/rest/v1/ 也自動去掉
+    import re
+    url = config.env("SUPABASE_URL", required=True).strip()
+    url = re.sub(r"/(rest|storage|auth)/v1.*$", "", url.rstrip("/"))
+    return url.rstrip("/") + "/storage/v1/object"
 
 
 def _headers() -> dict:

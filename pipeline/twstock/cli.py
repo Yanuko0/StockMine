@@ -423,6 +423,7 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
             raise RuntimeError("策略用到分K，但一檔分K 檔案都讀不到（請檢查 SUPABASE_URL / SUPABASE_SERVICE_KEY，"
                                "或分K 還沒抓過）")
 
+    m_stat = {"codes": 0, "last": None}
     hits: dict[int, list] = {i: [] for i in range(len(strategies))}
     # 條件漏斗：每條條件單獨通過幾檔、依序累積通過幾檔
     single = {i: [0] * len(s.get("conditions") or []) for i, s in enumerate(strat_list)}
@@ -449,6 +450,10 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
                 if n == 1:
                     df = df.assign(ts=df["ts"] - pd.Timedelta(minutes=1))
                 tfs[tf] = screener.Series(df)
+            if not m1.empty:
+                m_stat["codes"] += 1
+                ld = m1["ts"].iloc[-1].date().isoformat()
+                m_stat["last"] = max(m_stat["last"] or ld, ld)
         m = meta.loc[code] if code in meta.index else None
         chips = {"inst": inst_g.get(code), "mf": mf_g.get(code), "offset": offset, "market": market,
                  "meta": {"kind": m["kind"], "market": m["market"],
@@ -523,6 +528,8 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
                 for owner, lst in notify.items():  # 策略是私人的：只通知策略的主人
                     push.send_to_user(conn, owner, f"{d:%m/%d} 選股結果", "\n".join(f"{n}：{len(cs)} 檔" for _, n, cs in lst), "/screener")
     msg = "；".join(f"{len(hits[i])} 檔" for i, s in enumerate(strategies.itertuples()))
+    if tfs_needed & MINUTE_TFS:  # 排程紀錄裡看得到分K 有沒有讀到、讀到哪一天
+        msg += f"；分K 讀到 {m_stat['codes']} 檔、最新 {m_stat['last'] or '無'}"
     return f"{len(strategies)} 個策略（{msg}）" + (_run_tranche(d) + _more_financials(d, 1800) if full else "")
 
 

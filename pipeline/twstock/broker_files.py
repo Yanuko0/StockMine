@@ -4,6 +4,9 @@
 壓縮成檔案每檔約 50KB，全部約 50MB，放 Storage（免費 1GB）綽綽有餘。網頁看個股時只下載那一檔。
 
 格式：{"v": 1, "code": "2330", "days": [{"d": "2026-10-01", "b": [[分點代號, 名稱, 買進股數, 賣出股數, 均價], ...]}]}
+
+分點名稱表 bk/_names.json：{分點代號: 名稱}，每天用全市場最新抓到的正確名稱更新。
+舊檔裡的名稱（例如以前編碼解錯變成亂碼）在重寫時會用這張表修正；網頁也用這張表顯示名稱。
 """
 from __future__ import annotations
 
@@ -35,6 +38,25 @@ def decode(data: bytes | None) -> dict | None:
         return None
 
 
+NAMES = "bk/_names.json"
+
+
+def load_names() -> dict[str, str]:
+    data = storage.download(NAMES)
+    try:
+        return json.loads(data) if data else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def fix_names(obj: dict, names: dict[str, str]) -> dict:
+    for day in obj.get("days", []):
+        for r in day.get("b", []):
+            if r and names.get(str(r[0])):
+                r[1] = names[str(r[0])]
+    return obj
+
+
 def merge(old: dict | None, code: str, d: date, per: pd.DataFrame) -> dict:
     """把今天的分點加進去（同一天重跑會覆蓋），只留最近 KEEP_DAYS 天。"""
     rows = [[str(r.broker_id), str(r.broker_name), int(r.buy), int(r.sell),
@@ -63,10 +85,18 @@ def update(per_by_code: dict[str, pd.DataFrame], d: date, cache_dir) -> int:
         got = storage.download_many([path(c) for c in missing])
         for c in missing:
             old[c] = decode(got.get(path(c)))
+    from .sources.broker import good_name
+    names = load_names()
+    fresh = {str(r.broker_id): str(r.broker_name).strip() for per in per_by_code.values()
+             for r in per.itertuples() if good_name(str(r.broker_name).strip())}
+    changed = any(names.get(k) != v for k, v in fresh.items())
+    names.update(fresh)
     out = {}
+    if changed:
+        out[NAMES] = json.dumps(names, ensure_ascii=False, sort_keys=True).encode()
     for c, per in per_by_code.items():
-        data = encode(merge(old.get(c), c, d, per))
+        data = encode(fix_names(merge(old.get(c), c, d, per), names))
         (cache_dir / f"{c}.json.gz").write_bytes(data)
         out[path(c)] = data
     storage.upload_many(out)
-    return len(out)
+    return len(per_by_code)

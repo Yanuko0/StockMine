@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { sb } from "@/lib/supabase";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import SearchPalette, { openSearch } from "@/components/SearchPalette";
+import "@/components/InstallApp"; // 提早接住 Android 的「安裝 App」事件
 import { applyTheme, currentTheme, getThemePref, setThemePref, THEME_EVENT, type Theme } from "@/lib/theme";
 
 const NAV: { href: string; label: string; icon: IconName }[] = [

@@ -71,18 +71,32 @@ class ShioajiClient:
 
     def snapshots(self, codes: list[str], batch: int = 300) -> pd.DataFrame:
         """盤中快照：今天到目前為止的開高低收、總量（張）。回傳 code, ts, open, high, low, close, volume（張）。"""
-        cons = []
-        for c in codes:
+        cons = [k for k in (self._contract(c) for c in codes) if k is not None]
+        if len(cons) < len(codes) * 0.5:  # 商品檔沒下載完整：再下載一次
             try:
-                k = self.api.Contracts.Stocks[c]
-            except (KeyError, IndexError):
-                k = None
-            if k is not None:
-                cons.append(k)
+                self.api.fetch_contracts(contract_download=True, contracts_timeout=120000)
+            except Exception as e:  # noqa: BLE001
+                print(f"[shioaji] 重新下載商品檔失敗：{e}")
+            cons = [k for k in (self._contract(c) for c in codes) if k is not None]
         rows = []
         for i in range(0, len(cons), batch):
-            for sn in self.api.snapshots(cons[i:i + batch]):
-                rows.append({"code": sn.code, "ts": pd.to_datetime(sn.ts), "open": float(sn.open), "high": float(sn.high),
+            try:
+                snaps = self.api.snapshots(cons[i:i + batch])
+            except Exception as e:  # noqa: BLE001
+                print(f"[shioaji] 快照失敗（第 {i // batch + 1} 批）：{e}")
+                continue
+            for sn in snaps:
+                rows.append({"code": sn.code, "ts": sn.ts, "open": float(sn.open), "high": float(sn.high),
                              "low": float(sn.low), "close": float(sn.close), "volume": float(sn.total_volume)})
             time.sleep(0.2)
-        return pd.DataFrame(rows, columns=["code", "ts", "open", "high", "low", "close", "volume"])
+        print(f"[shioaji] 快照：{len(codes)} 檔要查、找到商品 {len(cons)} 檔、拿到 {len(rows)} 筆")
+        df = pd.DataFrame(rows, columns=["code", "ts", "open", "high", "low", "close", "volume"])
+        # ts 是奈秒整數（台灣時間）；沒資料時也要是日期型別，後面才能用 .dt
+        df["ts"] = pd.to_datetime(df["ts"], errors="coerce")
+        return df
+
+    def _contract(self, code: str):
+        try:
+            return self.api.Contracts.Stocks[code]
+        except (KeyError, IndexError):
+            return None
