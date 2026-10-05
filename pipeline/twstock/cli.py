@@ -478,7 +478,8 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
     rows, notify = [], {}
     for i, s in enumerate(strategies.itertuples()):
         uses_min = bool(screener.needed_timeframes([s.conditions]) & MINUTE_TFS)
-        info = {"total": len(codes), "minute_codes": len(minute_raw) if uses_min else None,
+        info = {"run_at": datetime.now(config.TW_TZ).isoformat(timespec="seconds"),  # 網頁用來判斷「重跑完成了」
+                "total": len(codes), "minute_codes": len(minute_raw) if uses_min else None,
                 "funnel": {"single": single[i], "cumul": cumul[i]}, "diag": diag[i],
                 "coverage": {"minute": len(minute_raw), "inst": len(inst_g), "mainforce": len(mf_g),
                              "yields": len(yields), "margins": sum(1 for v in margins.values() if v and all(x is not None for x in v))}}
@@ -570,7 +571,7 @@ def job_live(d: date, only: list[str] | None = None) -> str:
     need_min = bool(screener.needed_timeframes(strategies["conditions"].tolist()) & MINUTE_TFS)
     live = live_data(d, codes, need_min)
     if live["today"].empty:
-        return "今天沒有盤中資料（休市或尚未開盤）"
+        raise Skip("今天沒有盤中資料（休市、尚未開盤，或永豐快照抓不到）")
     msg = job_screen(d, only=only, live=live)
     return f"盤中 {live['ts']:%H:%M}：{msg}；快照 {len(live['today'])} 檔、分K {len(live['m1'])} 檔（{live['usage']}）"
 
@@ -578,10 +579,16 @@ def job_live(d: date, only: list[str] | None = None) -> str:
 def job_screen_now(d: date, strategy: str) -> str:
     """網頁按「立即選股」：盤中用盤中資料，盤後用最新收盤資料，只跑這一個策略。"""
     if market_open_now():
-        return job_live(d, only=[strategy])
+        try:
+            return job_live(d, only=[strategy])
+        except Exception as e:  # noqa: BLE001  盤中資料抓不到時，至少用最新收盤資料跑一次
+            traceback.print_exc()
+            note = f"盤中資料抓不到（{e}），改用最新收盤資料；"
+    else:
+        note = ""
     with db.connect() as conn:
         last = db.query_df(conn, "select max(date) as d from public.daily_prices where code <> 'TAIEX' and date <= %s", (d,))["d"][0]
-    return f"{last}：" + job_screen(last, only=[strategy])
+    return f"{note}{last}：" + job_screen(last, only=[strategy])
 
 
 def _more_financials(d: date, budget: int) -> str:

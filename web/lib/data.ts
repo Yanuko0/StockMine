@@ -378,6 +378,7 @@ export async function getResults(strategyId: string, limit = 20) {
       total: number; minute_codes: number | null; empty_groups?: string[];
       funnel?: { single: number[]; cumul: number[] };
       diag?: Record<string, string>; // 逐檔：每條條件 1/0 | 日K 根數 | m=有分K
+      run_at?: string; // 這次選股跑完的時間
       coverage?: { minute: number; inst: number; mainforce: number; yields: number; margins: number };
     } | null;
   }[];
@@ -392,6 +393,15 @@ export async function triggerScreen(strategy: string): Promise<{ ok: boolean; er
     body: JSON.stringify({ strategy }),
   });
   return r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }));
+}
+/** 「立即選股」在 GitHub 的執行狀況（since = 按下按鈕的時間） */
+export async function screenRunStatus(since: string): Promise<{ status: string; conclusion: string | null; url: string } | null> {
+  const { data } = await sb().auth.getSession();
+  const r = await fetch(`/api/screen-now?since=${encodeURIComponent(since)}`, {
+    headers: { Authorization: `Bearer ${data.session?.access_token}` }, cache: "no-store",
+  });
+  const j = await r.json().catch(() => null) as { ok: boolean; run?: { status: string; conclusion: string | null; url: string } | null } | null;
+  return j?.ok ? j.run ?? null : null;
 }
 /** 今天最新一次的盤中選股結果 */
 export async function getLive(strategy: string) {

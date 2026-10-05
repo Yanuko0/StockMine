@@ -150,6 +150,7 @@ def test_broker_files_merge(tmp_path, monkeypatch):
     up = {}
     monkeypatch.setattr(bf.storage, "download_many", lambda paths: {p: None for p in paths})
     monkeypatch.setattr(bf.storage, "upload_many", lambda items: up.update(items))
+    monkeypatch.setattr(bf.storage, "download", lambda path: None)
     assert bf.update({"2330": per}, date(2026, 10, 1), tmp_path) == 1
     f = bf.decode(up["bk/2330.json.gz"])
     assert f["days"][0]["b"][0] == ["1440", "美林", 5000, 0, 100.5] and f["days"][0]["b"][1][4] is None
@@ -159,3 +160,39 @@ def test_broker_files_merge(tmp_path, monkeypatch):
     bf.update({"2330": per}, date(2026, 10, 2) + pd.Timedelta(days=69), tmp_path)
     f = bf.decode(up["bk/2330.json.gz"])
     assert len(f["days"]) == 60 and len({x["d"] for x in f["days"]}) == 60
+
+
+def test_broker_csv_encoding_and_names():
+    from twstock import broker_files
+    csv_text = "1,9800元大,100,1000,0,,2,1440美林,100,0,500\n"
+    for enc in ("utf-8", "cp950"):
+        t = broker.parse_bsr_csv(broker.decode_csv(csv_text.encode(enc)))
+        assert t["broker_name"].tolist() == ["元大", "美林"], enc
+    assert not broker.good_name("\ufffd大") and broker.good_name("元大")
+    obj = {"days": [{"d": "2026-10-01", "b": [["9800", "憭", 1, 0, None]]}]}
+    assert broker_files.fix_names(obj, {"9800": "元大"})["days"][0]["b"][0][1] == "元大"
+
+
+def test_live_extend_with_snapshot_and_cache(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+    from types import SimpleNamespace
+    from twstock import cli, config
+    m1 = pd.DataFrame({"ts": pd.to_datetime(["2026-10-05 09:01", "2026-10-05 09:02"]),
+                       "open": [10.0, 10.1], "high": [10.2, 10.3], "low": [9.9, 10.0], "close": [10.1, 10.2], "volume": [5.0, 7.0]})
+    now = datetime(2026, 10, 5, 9, 40, 30, tzinfo=config.TW_TZ)
+    # 這段時間創新高 10.8：算進新的一根；收盤用快照
+    out = cli.extend_with_snapshot(m1, SimpleNamespace(open=10.0, high=10.8, low=9.9, close=10.5, volume=20_000), now)
+    last = out.iloc[-1]
+    assert str(last["ts"]) == "2026-10-05 09:40:00" and last["close"] == 10.5 and last["high"] == 10.8 and last["low"] == 10.5
+    assert last["volume"] == 8.0
+    # 沒有創新高 / 新低：高低就是收盤價
+    out2 = cli.extend_with_snapshot(m1, SimpleNamespace(open=10.0, high=10.3, low=9.9, close=10.15, volume=12_000), now)
+    assert out2.iloc[-1]["high"] == 10.15 and out2.iloc[-1]["low"] == 10.15
+    # 快取：40 分鐘內才沿用
+    monkeypatch.setattr(cli, "LIVE_DIR", tmp_path)
+    d = now.date()
+    cli.save_live_m1(d, {"2330": m1}, datetime.now(config.TW_TZ))
+    got = cli.load_live_m1(d)["m1"]["2330"]
+    pd.testing.assert_frame_equal(got[m1.columns], m1, check_dtype=False)
+    cli.save_live_m1(d, {"2330": m1}, datetime.now(config.TW_TZ) - timedelta(minutes=50))
+    assert cli.load_live_m1(d) is None

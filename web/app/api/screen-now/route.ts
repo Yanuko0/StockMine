@@ -27,3 +27,26 @@ export async function POST(req: Request) {
   });
   return Response.json({ ok: r.ok, status: r.status, error: r.ok ? undefined : (await r.text()).slice(0, 200) });
 }
+
+// 查「立即選股」最近一次在 GitHub 的執行狀況（網頁每 20 秒問一次；失敗時馬上告訴使用者）
+export async function GET(req: Request) {
+  const token = req.headers.get("authorization")?.replace("Bearer ", "");
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!token || !url || !anon) return Response.json({ ok: false }, { status: 401 });
+  const sb = createClient(url, anon, { global: { headers: { Authorization: `Bearer ${token}` } } });
+  const { data: u } = await sb.auth.getUser(token);
+  if (!u.user) return Response.json({ ok: false }, { status: 401 });
+  const pat = process.env.GITHUB_PAT;
+  const repo = process.env.GITHUB_REPO;
+  if (!pat || !repo) return Response.json({ ok: false });
+  const since = new URL(req.url).searchParams.get("since") ?? "";
+  const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/screen-now.yml/runs?per_page=5&event=workflow_dispatch`, {
+    headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+    cache: "no-store",
+  });
+  if (!r.ok) return Response.json({ ok: false, status: r.status });
+  const j = (await r.json()) as { workflow_runs?: { status: string; conclusion: string | null; html_url: string; created_at: string }[] };
+  const run = (j.workflow_runs ?? []).find((x) => !since || x.created_at >= since.slice(0, 19));
+  return Response.json({ ok: true, run: run ? { status: run.status, conclusion: run.conclusion, url: run.html_url } : null });
+}

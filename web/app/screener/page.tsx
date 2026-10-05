@@ -7,7 +7,7 @@ import GroupManager from "@/components/GroupManager";
 import Funnel from "@/components/Funnel";
 import Diagnose from "@/components/Diagnose";
 import {
-  deleteStrategy, getGroups, getLive, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
+  deleteStrategy, getGroups, getLive, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
 } from "@/lib/data";
 
 type Group = { name: string; custom: boolean; items: ScreenItem[] };
@@ -96,26 +96,39 @@ function Screener() {
   }
   useEffect(() => { if (sel) { setDayIdx(0); loadResults(sel).catch(() => {}); } }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 立即選股：排程大約 2~4 分鐘跑完，每 20 秒看一次有沒有新結果
+  // 立即選股：排程大約 2~4 分鐘跑完，每 10 秒看一次有沒有新結果
   async function runNow(id: string) {
     setRunMsg("");
     const r = await triggerScreen(id);
     if (!r.ok) { setRunMsg(`沒辦法立即選股：${r.error ?? "未知錯誤"}`); return; }
-    setRunning({ id, since: Date.now() });
+    setRunning({ id, since: Date.now() - 30_000 }); // 往前抓 30 秒，避免和 GitHub 的時間差
   }
   useEffect(() => {
     if (!running) return;
-    const before = JSON.stringify(results.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total]));
+    const before = JSON.stringify(results.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total, x.meta?.run_at]));
     const t = setInterval(async () => {
       const out = await loadResults(running.id).catch(() => null);
       if (!out) return;
-      const now = JSON.stringify(out.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total]));
-      if (now !== before || Date.now() - running.since > 9 * 60e3) {
+      const now = JSON.stringify(out.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total, x.meta?.run_at]));
+      if (now !== before) { setRunning(null); setDayIdx(0); return; }
+      // 結果還沒變：問 GitHub 這次跑得怎樣，失敗就馬上說
+      const run = await screenRunStatus(new Date(running.since).toISOString()).catch(() => null);
+      if (run?.status === "completed" && run.conclusion !== "success") {
         setRunning(null);
-        if (now === before) setRunMsg("等太久了，結果還沒出來。可以到 GitHub → Actions →「立即選股」看執行狀況。");
+        setRunMsg(`這次選股在 GitHub 執行失敗（${run.conclusion}）。到 GitHub → Actions →「立即選股」點最新一筆看原因：${run.url}`);
+        return;
+      }
+      if (run?.status === "completed" && run.conclusion === "success") {
+        await loadResults(running.id).catch(() => null);
+        setRunning(null); setDayIdx(0);
+        return;
+      }
+      if (Date.now() - running.since > 12 * 60e3) {
+        setRunning(null);
+        setRunMsg(run ? `還在 GitHub 排隊或執行中（${run.status}），晚點重新整理就會看到結果。` : "等太久了，結果還沒出來。可以到 GitHub → Actions →「立即選股」看執行狀況。");
         setDayIdx(0);
       }
-    }, 20000);
+    }, 10000);
     return () => clearInterval(t);
   }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
 
