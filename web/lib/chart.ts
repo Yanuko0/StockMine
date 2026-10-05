@@ -14,7 +14,7 @@ export interface MAExt {
   offset: number;        // 扣抵位置定義（0 = 下一期要扣的）
   colors?: string;       // 均線顏色（只用來觸發重畫）
   /** 扣三低：monthly = 目前是月K（畫 D1~D3 標記）；其他週期用 line（由月K 算好的價位）畫一條橫線 */
-  d3: { enabled: boolean; n: number; monthly: boolean; line: number | null; status: string } | null;
+  d3: { enabled: boolean; n: number; monthly: boolean; line: number | null; status: string; poly?: boolean } | null;
   /** 自動箱型（密集成交區，用日K 算好）：所有週期都畫同一個箱子；startTs 之後才畫，右側畫分價量 */
   box?: { top: number; bottom: number; poc: number; startTs: number; profile: number[]; pmin: number; step: number; label: string; showProfile: boolean } | null;
 }
@@ -92,35 +92,45 @@ export function registerAll() {
         if (i0 < 0) i0 = L - 1;
         const x0 = Math.max(0, xAxis.convertToPixel(i0));
         const W = bounding.width;
+        // 淡黃色、很透明：不要蓋住 K 棒
+        const small = W < 520;
+        const BOX = PAL.box;
         // 分價量（右側橫條）
         if (bx.showProfile) {
           const max = Math.max(...bx.profile) || 1;
-          const pw = W * 0.18;
-          ctx.fillStyle = PAL.box + "33";
+          const pw = W * (small ? 0.12 : 0.16);
           bx.profile.forEach((v, k) => {
             const y1 = yAxis.convertToPixel(bx.pmin + bx.step * (k + 1)), y0 = yAxis.convertToPixel(bx.pmin + bx.step * k);
             const w = (v / max) * pw;
             const p0 = bx.pmin + bx.step * k;
-            ctx.fillStyle = p0 >= bx.bottom - 1e-9 && p0 < bx.top - 1e-9 ? PAL.box + "55" : PAL.box + "22";
+            ctx.fillStyle = p0 >= bx.bottom - 1e-9 && p0 < bx.top - 1e-9 ? BOX + "2e" : BOX + "14";
             ctx.fillRect(W - w, Math.min(y0, y1), w, Math.max(1, Math.abs(y0 - y1) - 1));
           });
         }
-        ctx.fillStyle = PAL.box + "14";
+        ctx.fillStyle = BOX + "0b";
         ctx.fillRect(x0, Math.min(yT, yB), W - x0, Math.abs(yB - yT));
-        ctx.strokeStyle = PAL.box;
+        ctx.strokeStyle = BOX + "b3";
         ctx.lineWidth = 1;
-        ctx.setLineDash([4, 3]);
+        ctx.setLineDash([4, 4]);
         ctx.beginPath(); ctx.moveTo(x0, yT); ctx.lineTo(W, yT); ctx.moveTo(x0, yB); ctx.lineTo(W, yB); ctx.stroke();
-        ctx.setLineDash([1, 3]);
+        ctx.strokeStyle = BOX + "66";
+        ctx.setLineDash([1, 4]);
         ctx.beginPath(); ctx.moveTo(x0, yP); ctx.lineTo(W, yP); ctx.stroke();
         ctx.setLineDash([]);
-        ctx.font = `600 11px ${CHART_FONT}`;
-        ctx.textAlign = "left";
-        ctx.fillStyle = PAL.box;
-        ctx.fillText(`箱頂 ${bx.top.toFixed(2)}`, x0 + 4, yT - 4);
-        ctx.fillText(`箱底 ${bx.bottom.toFixed(2)}`, x0 + 4, yB + 13);
-        ctx.font = `10px ${CHART_FONT}`;
-        ctx.fillText(`籌碼峰 ${bx.poc.toFixed(2)}・${bx.label}`, x0 + 4, yP - 3);
+        // 文字靠右、加底色，避開左邊的均線 / 水平線標籤
+        const tag = (t: string, y: number, size: number) => {
+          ctx.font = `600 ${size}px ${CHART_FONT}`;
+          const tw = ctx.measureText(t).width;
+          const x = W - tw - 8 - (bx.showProfile ? W * (small ? 0.12 : 0.16) * 0.15 : 0);
+          ctx.fillStyle = PAL.d3bg;
+          ctx.fillRect(x - 3, y - size, tw + 6, size + 4);
+          ctx.fillStyle = BOX;
+          ctx.textAlign = "left";
+          ctx.fillText(t, x, y);
+        };
+        tag(`箱頂 ${bx.top.toFixed(2)}`, yT - 4, small ? 10 : 11);
+        tag(`箱底 ${bx.bottom.toFixed(2)}`, yB + 13, small ? 10 : 11);
+        if (!small) tag(`籌碼峰 ${bx.poc.toFixed(2)}・${bx.label}`, yP - 3, 10);
         ctx.textAlign = "center";
         ctx.font = `10px ${CHART_FONT}`;
       }
@@ -149,6 +159,37 @@ export function registerAll() {
           ctx.fillText(txt, bounding.width - 4, y - 5);
         }
       }
+      // 扣三低折線（3AI）：每一期均線要扣掉的那根收盤 = 收盤往右移 n 期；
+      // 最右邊延伸到未來 3 期 = 扣1低 / 扣2低 / 扣3低。本期收盤站在這 3 點之上 = 扣三低成立
+      if (ext.d3?.poly && ext.d3.monthly && data.length > ext.d3.n + ext.offset) {
+        const n = ext.d3.n + ext.offset, L = data.length, c0 = data[L - 1].close;
+        ctx.strokeStyle = PAL.d3;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        for (let t = n; t <= L + 2; t++) {
+          const x = xAxis.convertToPixel(t), y = yAxis.convertToPixel(data[t - n].close);
+          if (t === n) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        // 現在這一期：一條直的虛線
+        const xNow = xAxis.convertToPixel(L - 1);
+        ctx.strokeStyle = "rgba(255,102,204,0.7)";
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath(); ctx.moveTo(xNow, 0); ctx.lineTo(xNow, bounding.height); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.font = `600 11px ${CHART_FONT}`;
+        for (let k = 0; k < 3; k++) {
+          const v = data[L - n + k].close;
+          const x = xAxis.convertToPixel(L + k), y = yAxis.convertToPixel(v);
+          const low = v < c0; // 扣低：扣掉的比現在收盤低 → 均線會往上
+          ctx.fillStyle = low ? UP : DOWN;
+          ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill();
+          ctx.textAlign = "left";
+          ctx.fillText(`扣${k + 1}${low ? "低" : "高"} ${v.toFixed(2)}`, x + 7, y + (k - 1) * 13 + 4);
+        }
+        ctx.textAlign = "center";
+      }
       if (ext.d3?.enabled && ext.d3.monthly) {
         const r = deduct3low(data.map((d) => d.close), ext.d3.n, ext.offset);
         if (r) {
@@ -159,7 +200,7 @@ export function registerAll() {
           ctx.setLineDash([6, 4]);
           ctx.beginPath(); ctx.moveTo(Math.max(0, x0), y); ctx.lineTo(bounding.width, y); ctx.stroke();
           ctx.setLineDash([]);
-          r.idx.forEach((i, k) => {
+          if (!ext.d3.poly) r.idx.forEach((i, k) => {
             const x = xAxis.convertToPixel(i);
             const yy = yAxis.convertToPixel(data[i].high) - 8;
             ctx.fillStyle = PAL.d3;
@@ -170,7 +211,9 @@ export function registerAll() {
           ctx.textAlign = "right";
           ctx.fillStyle = PAL.d3;
           ctx.font = `600 11px ${CHART_FONT}`;
-          ctx.fillText(`扣三低線(${ext.d3.n}) ${r.line.toFixed(2)} ${ext.d3.status}`, bounding.width - 4, y - 4);
+          // 開折線時，未來 3 點旁邊已經有數字：線的說明改放左邊，才不會疊在一起
+          // 開折線時，未來 3 點旁邊已經有數字，線的說明就不寫（下方扣抵列有），才不會疊在一起
+          if (!ext.d3.poly) ctx.fillText(`扣三低線(${ext.d3.n}) ${r.line.toFixed(2)} ${ext.d3.status}`, bounding.width - 4, y - 4);
         }
       }
       return false; // 均線本身照常畫

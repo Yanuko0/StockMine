@@ -46,6 +46,8 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
   const [stock, setStock] = useState<Stock | null>(null);
   const [tab, setTab] = useState<Tab>("tech");
   const [sideTab, setSideTab] = useState<"chips" | "broker">(() => loadPref("sideTab", "chips"));
+  const [sideOpen, setSideOpen] = useState<boolean>(() => loadPref("sideOpen", true)); // 電腦版右側個股資訊：展開 / 收起
+  useEffect(() => savePref("sideOpen", sideOpen), [sideOpen]);
   useEffect(() => savePref("sideTab", sideTab), [sideTab]);
   const desk = useDesktop();
   const router = useRouter();
@@ -57,6 +59,8 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
   const [subs, setSubs] = useState<SubInd[]>(() => loadPref("subs", ["VOL", "TW_KD"]));
   const [showDeduct, setShowDeduct] = useState<boolean>(() => loadPref("deduct", true));
   const [d3On, setD3On] = useState<boolean>(() => loadPref("d3", true));
+  const [polyOn, setPolyOn] = useState<boolean>(() => loadPref("d3poly", true));
+  useEffect(() => savePref("d3poly", polyOn), [polyOn]);
   const [bollOn, setBollOn] = useState<boolean>(() => loadPref("boll", false));
   const [indParams, setIndParams] = useState<Record<string, number[]>>(() => ({ ...DEFAULT_PARAMS, ...loadPref("indParams", {}) }));
   const [paramOpen, setParamOpen] = useState(false);
@@ -159,8 +163,8 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
       showProfile: boxConf.profile, label: `前${boxConf.n}日 ${boxConf.va}% 量・箱高 ${box.height.toFixed(1)}%${box.ok ? "" : "（超過上限，不算箱型）"}`,
     } : null,
     deduct: showDeduct, offset, colors: maConf.map((m) => m.color).join(), // colors：顏色改了要重畫
-    d3: { enabled: d3On && !!d3, n: d3N, monthly: tf === "M", line: d3?.line ?? null, status: d3Status },
-  }), [showDeduct, offset, d3On, d3N, tf, d3, d3Status, maConf, box, boxConf, daily]);
+    d3: { enabled: d3On && !!d3, n: d3N, monthly: tf === "M", line: d3?.line ?? null, status: d3Status, poly: polyOn },
+  }), [showDeduct, offset, d3On, d3N, tf, d3, d3Status, maConf, box, boxConf, daily, polyOn]);
   const toolState = useMemo(() => (tool ? { kind: tool, color, label } : null), [tool, color, label]);
 
   const last = bars[bars.length - 1];
@@ -300,6 +304,8 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
               <span className="w-px h-5 bg-line mx-1 shrink-0" />
               <button className={`chip ${showDeduct ? "chip-on" : ""}`} onClick={() => setShowDeduct(!showDeduct)}>扣抵</button>
               <button className={`chip ${d3On ? "chip-on" : ""}`} onClick={() => setD3On(!d3On)}>月扣三低</button>
+              <button className={`chip ${polyOn ? "chip-on" : ""}`} title="月K 上畫扣抵折線（3AI）：未來 3 個月要扣的值"
+                onClick={() => { const v = !polyOn; setPolyOn(v); if (v && tf !== "M") setTf("M"); }}>扣三低折線</button>
               <button className={`chip ${showList ? "chip-on" : ""}`} onClick={() => setShowList(!showList)}>畫線清單 {drawings.length}</button>
             </div>
             {last && (
@@ -384,7 +390,18 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
       {desk ? (
         <div className="flex-1 min-h-0 flex">
           <div className="flex-1 min-w-0 flex flex-col">{tech}</div>
-          <aside className="w-[360px] xl:w-[400px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0">
+          {!sideOpen ? (
+            <aside className="w-7 shrink-0 border-l border-line bg-panel">
+              <button className="w-7 h-full flex flex-col items-center pt-3 gap-2 text-muted hover:text-text hover:bg-panel-2" title="展開個股資訊" onClick={() => setSideOpen(true)}>
+                <Icon name="dblLeft" className="w-4 h-4" />
+                <span className="text-[11px] [writing-mode:vertical-rl] tracking-widest">個股資訊</span>
+              </button>
+            </aside>
+          ) : (
+          <aside className="w-[360px] xl:w-[400px] shrink-0 border-l border-line bg-panel flex flex-col min-h-0 relative">
+            <button className="icon-btn !w-7 !h-7 absolute right-1.5 top-1.5 z-10" title="收起個股資訊" onClick={() => setSideOpen(false)}>
+              <Icon name="dblRight" className="w-4 h-4" />
+            </button>
             <QuoteHeader daily={daily} side />
             <div className="px-3 py-2 border-y border-line">
               <div className="seg w-full">
@@ -395,6 +412,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
             </div>
             <div className="flex-1 overflow-y-auto scroll-thin">{sidePanel(sideTab)}</div>
           </aside>
+          )}
         </div>
       ) : (
         <>

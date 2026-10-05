@@ -131,6 +131,15 @@ export default function KChart(p: Props) {
     chart.current?.overrideIndicator({ name: "TW_MA", paneId: "candle_pane", calcParams: p.maPeriods, extendData: p.maExt });
   }, [p.maPeriods, p.maExt]);
 
+  // 月K 開扣三低折線：右邊留 3 期的空間畫「扣1低 / 扣2低 / 扣3低」
+  const polyOn = !!p.maExt.d3?.poly && p.tf === "M";
+  useEffect(() => {
+    const c = chart.current;
+    if (!c) return;
+    const base = window.innerWidth < 640 ? 14 : 36;
+    c.setOffsetRightDistance(polyOn ? Math.max(base, c.getBarSpace().bar * 3.5 + 90) : base);
+  }, [polyOn, p.bars]);
+
   // 副圖
   useEffect(() => {
     const c = chart.current;
