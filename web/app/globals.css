@@ -180,7 +180,7 @@ select.bare-select:focus { box-shadow: none; border-color: transparent; }
 
 /* 三竹式的分頁列：選到的字變藍、下面一條藍線 */
 .tabbar { display: flex; border-bottom: 1px solid var(--line); background: var(--panel); }
-.tabbar > button, .tabbar > a { flex: 1; padding: 10px 0 9px; font-size: 15px; color: var(--muted); border-bottom: 2.5px solid transparent; transition: color .15s, border-color .15s; white-space: nowrap; }
+.tabbar > button, .tabbar > a { flex: 1; padding: 8px 0 7px; font-size: 15px; color: var(--muted); border-bottom: 2.5px solid transparent; transition: color .15s, border-color .15s; white-space: nowrap; }
 .tabbar > [aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .param { color: var(--param); }
 

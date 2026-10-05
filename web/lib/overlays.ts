@@ -44,7 +44,7 @@ export function registerOverlays() {
       const figs = [line([{ x: 0, y }, { x: bounding.width, y }], c)];
       const p = overlay.points[0]?.value;
       const lbl = `${overlay.extendData?.label ? overlay.extendData.label + " " : ""}${p != null ? p.toFixed(2) : ""}`;
-      figs.push(text(bounding.width - 4, y - 3, lbl, c, "right"));  // 標籤放右邊，避免擋到左上角的指標數值
+      figs.push(text(4, y - 3, lbl, c, "left"));  // 標籤放左邊、線的上方（跟三竹一樣），不會跟右邊的價格標籤疊在一起
       return figs;
     },
   });

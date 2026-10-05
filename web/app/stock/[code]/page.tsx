@@ -165,6 +165,19 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
 
   const last = bars[bars.length - 1];
   const closes = bars.map((b) => b.close);
+  // 手機版圖表上方的一行：均線數值（手指移到哪根就顯示那根）
+  const [crossIdx, setCrossIdx] = useState<number | null>(null);
+  const maRow = useMemo(() => {
+    const i = crossIdx != null && crossIdx >= 0 && crossIdx < closes.length ? crossIdx : closes.length - 1;
+    if (i < 0) return null;
+    const vals = maPeriods.map((n) => {
+      if (i + 1 < n) return { n, v: null as number | null };
+      let sum = 0; for (let k = i - n + 1; k <= i; k++) sum += closes[k];
+      return { n, v: sum / n };
+    });
+    const b = bars[i];
+    return { vals, bar: b, cross: crossIdx != null };
+  }, [crossIdx, closes, maPeriods, bars]);
   const selected = drawings.find((d) => d.id === selectedId) ?? null;
 
   async function onCreated(kind: DrawKind, points: DrawPoint[]) {
@@ -212,8 +225,25 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
               onDelete={async () => { if (!selected) return; const id = selected.id; setSelectedId(null); setDrawings((x) => x.filter((d) => d.id !== id)); await deleteDrawing(id); }} />
           )}
 
+          {/* 手機：均線數值一行（可左右滑），手指在圖上時顯示那根的開高低收 */}
+          {maRow && (
+            <div className="lg:hidden flex items-center gap-2.5 px-2 h-6 text-[11px] num overflow-x-auto no-scrollbar whitespace-nowrap border-b border-line bg-panel">
+              {maRow.cross && maRow.bar ? (
+                <>
+                  <span className="text-muted">{maRow.bar.date?.slice(5) ?? new Date(maRow.bar.timestamp + 8 * 3600e3).toISOString().slice(5, 16).replace("T", " ")}</span>
+                  <span>開 {maRow.bar.open.toFixed(2)}</span><span className="up">高 {maRow.bar.high.toFixed(2)}</span>
+                  <span className="down">低 {maRow.bar.low.toFixed(2)}</span><span>收 {maRow.bar.close.toFixed(2)}</span>
+                  <span className="text-muted">量 {Math.round(maRow.bar.volume).toLocaleString()}</span>
+                  <span className="w-px h-3 bg-line shrink-0" />
+                </>
+              ) : null}
+              {maRow.vals.map(({ n, v }) => (
+                <span key={n} style={{ color: maColor(n) }}>{n}T:{v == null ? "-" : v.toFixed(2)}</span>
+              ))}
+            </div>
+          )}
           {/* 圖表 */}
-          <div className="relative flex-1 min-h-[50vh]">
+          <div className="relative flex-1 min-h-[52vh]">
             {d3On && d3 && daily.length > 1 && !loading && (
               <button onClick={() => setD3Info(!d3Info)} title="月扣三低：點開看 D1~D3"
                 className="hidden lg:block absolute z-10 right-[72px] top-1.5 rounded-lg px-2 py-1 text-[11px] num glass border border-line text-left shadow"
@@ -240,7 +270,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
                 drawings={drawings} userId={userId} tool={toolState}
                 onCreated={onCreated}
                 onMoved={(id, points) => { setDrawings((x) => x.map((d) => (d.id === id ? { ...d, points } : d))); updateDrawing(id, { points }); }}
-                onSelect={(id) => { if (id) setSelectedId(id); }} />
+                onSelect={(id) => { if (id) setSelectedId(id); }} onCross={setCrossIdx} />
             )}
             {selected && (
               <DrawEditor d={selected} mine={selected.created_by === userId} bars={bars} tf={tf}
@@ -332,7 +362,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
   return (
     <div className="h-full flex flex-col">
       {/* 標題 */}
-      <header className="flex items-center gap-1.5 px-2 lg:px-4 py-1.5 border-b border-line bg-panel" style={{ paddingTop: "max(6px, env(safe-area-inset-top))" }}>
+      <header className="flex items-center gap-1.5 px-2 lg:px-4 py-1 border-b border-line bg-panel" style={{ paddingTop: "max(6px, env(safe-area-inset-top))" }}>
         <button className="icon-btn lg:hidden" onClick={() => (history.length > 1 ? router.back() : router.push("/"))} aria-label="返回">
           <Icon name="back" className="w-6 h-6" />
         </button>
@@ -341,7 +371,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
             <span className="text-muted num text-[15px]">{code}</span>
             <span className="font-bold truncate text-[18px]">{stock?.name}</span>
           </div>
-          <span className="text-[12px] px-2 py-px rounded-md border border-line text-muted whitespace-nowrap">
+          <span className="text-[11px] px-1.5 rounded-md border border-line text-muted whitespace-nowrap leading-[18px]">
             {stock?.market === "TPEX" ? "上櫃" : "上市"}{stock?.kind === "etf" ? "-ETF" : stock?.industry ? `-${stock.industry}` : ""}
           </span>
         </div>
