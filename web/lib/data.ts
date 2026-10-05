@@ -221,14 +221,25 @@ function getBrokerFile(code: string): Promise<BkFile | null> {
   return bkCache.get(code)!;
 }
 
+// 分點名稱表 bk/_names.json（每天用最新抓到的正確名稱更新）：舊資料的名稱有亂碼時用這張表顯示
+let brokerNamesP: Promise<Record<string, string>> | null = null;
+function brokerNames(): Promise<Record<string, string>> {
+  brokerNamesP ??= (async () => {
+    const { data, error } = await sb().storage.from("minute").download("bk/_names.json");
+    if (error || !data) return {};
+    return JSON.parse(await data.text()) as Record<string, string>;
+  })().catch(() => ({}));
+  return brokerNamesP;
+}
+
 export async function brokerSummary(code: string, days: number): Promise<BrokerRow[]> {
-  const f = await getBrokerFile(code);
+  const [f, names] = await Promise.all([getBrokerFile(code), brokerNames()]);
   if (f && f.days.length) {
     const span = f.days.slice(-days);
     const acc = new Map<string, { name: string; buy: number; sell: number; amt: number; qty: number }>();
     for (const day of span) {
       for (const [id, name, buy, sell, avg] of day.b) {
-        const a = acc.get(id) ?? { name, buy: 0, sell: 0, amt: 0, qty: 0 };
+        const a = acc.get(id) ?? { name: names[id] || name, buy: 0, sell: 0, amt: 0, qty: 0 };
         a.buy += buy; a.sell += sell;
         if (avg != null) { a.amt += avg * (buy + sell); a.qty += buy + sell; }
         acc.set(id, a);
@@ -246,7 +257,7 @@ export async function brokerSummary(code: string, days: number): Promise<BrokerR
     return [...buys, ...sells];
   }
   const r = must(await sb().rpc("broker_summary", { p_code: code, p_days: days, p_top: 15 })) as BrokerRow[];
-  return r.map((x) => ({ ...x, buy: +x.buy, sell: +x.sell, net: +x.net, avg_price: x.avg_price == null ? null : +x.avg_price }));
+  return r.map((x) => ({ ...x, broker_name: names[x.broker_id] || x.broker_name, buy: +x.buy, sell: +x.sell, net: +x.net, avg_price: x.avg_price == null ? null : +x.avg_price }));
 }
 export async function brokerHistory(code: string, broker: string, days = 20) {
   const f = await getBrokerFile(code);
