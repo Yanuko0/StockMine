@@ -436,7 +436,8 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
         raw = minute_raw.get(code)
         today_m1 = (live or {}).get("m1", {}).get(code)
         if raw or today_m1 is not None:
-            m1 = bars.from_minute_file(raw) if raw else pd.DataFrame(columns=["ts", "open", "high", "low", "close", "volume"])
+            m1 = bars.from_minute_file(raw) if raw else pd.DataFrame(
+                {"ts": pd.Series(dtype="datetime64[ns]"), **{k: pd.Series(dtype=float) for k in ("open", "high", "low", "close", "volume")}})
             if today_m1 is not None and not today_m1.empty:  # 盤中：接上今天的 1分K
                 m1 = pd.concat([m1[m1["ts"].dt.date != d], today_m1], ignore_index=True).sort_values("ts")
             for tf in tfs_needed & MINUTE_TFS:
@@ -489,6 +490,8 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
             info["empty_groups"] = empty
         if live is not None:
             info["live"] = True
+            if live.get("approx_since"):
+                info["m1_from"] = live["approx_since"].isoformat(timespec="minutes")  # 分K 是這個時間抓的，之後用快照補
             rows.append({"strategy_id": s.id, "ts": live["ts"], "items": hits[i], "meta": info})
         else:
             rows.append({"strategy_id": s.id, "date": d, "items": hits[i], "meta": info})
@@ -526,20 +529,84 @@ def market_open_now() -> bool:
     return now.weekday() < 5 and (9, 0) <= (now.hour, now.minute) < (13, 50)
 
 
-def live_data(d: date, codes: list[str], need_minutes: bool) -> dict:
-    """用永豐 Shioaji 抓盤中資料：全市場快照（今天的日K）＋（需要時）今天的 1分K。"""
+LIVE_DIR = CACHE_DIR.parent / "live"   # 今天盤中抓過的 1分K（GitHub 快取，排程之間共用）
+LIVE_REUSE_MIN = 40                    # 這麼多分鐘內抓過的就直接沿用，只用快照補上最新價格
+
+
+def _live_file(d: date) -> Path:
+    return LIVE_DIR / f"{d.isoformat()}.parquet"
+
+
+def save_live_m1(d: date, m1: dict, ts: datetime) -> None:
+    LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    for f in LIVE_DIR.glob("*.parquet"):  # 只留今天的
+        if f.name != _live_file(d).name:
+            f.unlink(missing_ok=True)
+    df = pd.concat([x.assign(code=c) for c, x in m1.items() if not x.empty], ignore_index=True)
+    df.attrs = {}
+    df.to_parquet(_live_file(d), index=False)
+    (LIVE_DIR / "fetched_at.txt").write_text(ts.isoformat())
+    (LIVE_DIR / ".fresh").write_text("1")  # 這次有重新抓：排程結束時要存回 GitHub 快取
+
+
+def load_live_m1(d: date, max_age_min: int = LIVE_REUSE_MIN) -> dict | None:
+    f, t = _live_file(d), LIVE_DIR / "fetched_at.txt"
+    if not (f.exists() and t.exists()):
+        return None
+    try:
+        ts = datetime.fromisoformat(t.read_text().strip())
+        if datetime.now(config.TW_TZ) - ts > timedelta(minutes=max_age_min):
+            return None
+        df = pd.read_parquet(f)
+    except Exception:  # noqa: BLE001
+        return None
+    m1 = {c: g.drop(columns="code").reset_index(drop=True) for c, g in df.groupby("code")}
+    return {"ts": ts, "m1": m1}
+
+
+def extend_with_snapshot(m1: pd.DataFrame, snap_row, now: datetime) -> pd.DataFrame:
+    """之前抓的今天 1分K ＋ 快照的最新價格 → 接一根到「現在」的 1分K。
+    收盤價一定準；如果這段時間創了今天新高 / 新低，也會算進這一根。"""
+    ts = pd.Timestamp(now.replace(tzinfo=None, second=0, microsecond=0))
+    last_ts = m1["ts"].iloc[-1] if not m1.empty else None
+    if last_ts is not None and ts <= last_ts:
+        return m1
+    c = float(snap_row.close)
+    hi = max(c, float(snap_row.high)) if m1.empty or float(snap_row.high) > float(m1["high"].max()) else c
+    lo = min(c, float(snap_row.low)) if m1.empty or float(snap_row.low) < float(m1["low"].min()) else c
+    vol = max(0.0, float(snap_row.volume) / 1000 - float(m1["volume"].sum() if not m1.empty else 0))
+    bar = pd.DataFrame([{"ts": ts, "open": float(m1["close"].iloc[-1]) if not m1.empty else float(snap_row.open),
+                         "high": hi, "low": lo, "close": c, "volume": vol}])
+    return pd.concat([m1, bar], ignore_index=True)
+
+
+def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False) -> dict:
+    """用永豐 Shioaji 抓盤中資料：全市場快照（今天的日K）＋（需要時）今天的 1分K。
+    reuse=True：40 分鐘內盤中排程抓過今天的 1分K 就沿用，只用快照補最新價格（快很多，不用逐檔抓）。"""
     if not (config.SHIOAJI_API_KEY and config.SHIOAJI_SECRET_KEY):
         raise Skip("尚未設定永豐金鑰（SHIOAJI_API_KEY），無法盤中選股")
     from .sources.shioaji_src import ShioajiClient
+    cached = load_live_m1(d) if (need_minutes and reuse) else None
     sj = ShioajiClient()
     try:
         snap = sj.snapshots(codes)
         snap = snap[(snap["close"] > 0) & (snap["volume"] > 0)]
         snap = snap[snap["ts"].dt.date == d]  # 休市日的快照是前一天的：不算
         today = snap.assign(volume=snap["volume"] * 1000)[["code", "open", "high", "low", "close", "volume"]]
+        now = datetime.now(config.TW_TZ)
         m1: dict = {}
+        approx_since = None
         if need_minutes:
-            for c in today["code"]:
+            todo = list(today["code"])
+            if cached:
+                approx_since = cached["ts"]
+                by = today.set_index("code")
+                for c in todo:
+                    if c in cached["m1"]:
+                        m1[c] = extend_with_snapshot(cached["m1"][c], by.loc[c], now)
+                todo = [c for c in todo if c not in m1]  # 快取裡沒有的才逐檔抓
+                print(f"[live] 沿用 {cached['ts']:%H:%M} 抓的分K {len(m1)} 檔，另外要抓 {len(todo)} 檔")
+            for c in todo:
                 rem = sj.remaining_mb()
                 if rem is not None and rem < 40:
                     print("[live] Shioaji 今日流量快用完，分K 只抓到這裡")
@@ -550,15 +617,16 @@ def live_data(d: date, codes: list[str], need_minutes: bool) -> dict:
                     print(f"[live] {c} 分K 失敗：{e}")
                     continue
                 if not df.empty:
-                    m1[c] = df[df["ts"].dt.date == d]
+                    m1[c] = df[df["ts"].dt.date == d].reset_index(drop=True)
+            if not cached and m1:
+                save_live_m1(d, m1, now)  # 給接下來的「立即選股」沿用
         usage = sj.usage()
     finally:
         sj.close()
-    ts = datetime.now(config.TW_TZ)
-    return {"ts": ts, "today": today, "m1": m1, "usage": usage}
+    return {"ts": now, "today": today, "m1": m1, "usage": usage, "approx_since": approx_since}
 
 
-def job_live(d: date, only: list[str] | None = None) -> str:
+def job_live(d: date, only: list[str] | None = None, reuse: bool = False) -> str:
     """盤中選股（每 30 分鐘）：用盤中價格跑全部（或指定的）策略，結果存 screen_live。"""
     with db.connect() as conn:
         strategies = db.query_df(conn, "select conditions from public.strategies"
@@ -569,18 +637,19 @@ def job_live(d: date, only: list[str] | None = None) -> str:
     if strategies.empty:
         return "沒有任何策略"
     need_min = bool(screener.needed_timeframes(strategies["conditions"].tolist()) & MINUTE_TFS)
-    live = live_data(d, codes, need_min)
+    live = live_data(d, codes, need_min, reuse=reuse)
     if live["today"].empty:
         raise Skip("今天沒有盤中資料（休市、尚未開盤，或永豐快照抓不到）")
     msg = job_screen(d, only=only, live=live)
-    return f"盤中 {live['ts']:%H:%M}：{msg}；快照 {len(live['today'])} 檔、分K {len(live['m1'])} 檔（{live['usage']}）"
+    extra = f"、分K 沿用 {live['approx_since']:%H:%M} 再接上最新價格" if live.get("approx_since") else ""
+    return f"盤中 {live['ts']:%H:%M}：{msg}；快照 {len(live['today'])} 檔、分K {len(live['m1'])} 檔{extra}（{live['usage']}）"
 
 
 def job_screen_now(d: date, strategy: str) -> str:
     """網頁按「立即選股」：盤中用盤中資料，盤後用最新收盤資料，只跑這一個策略。"""
     if market_open_now():
         try:
-            return job_live(d, only=[strategy])
+            return job_live(d, only=[strategy], reuse=True)
         except Exception as e:  # noqa: BLE001  盤中資料抓不到時，至少用最新收盤資料跑一次
             traceback.print_exc()
             note = f"盤中資料抓不到（{e}），改用最新收盤資料；"

@@ -33,11 +33,23 @@ def _c() -> httpx.Client:
     return _client
 
 
+def _missing(r: httpx.Response) -> bool:
+    """檔案不存在（正常，回傳 None）；其他 400 多半是金鑰 / 網址錯了，要報錯，不能當成沒有檔案。"""
+    if r.status_code == 404:
+        return True
+    if r.status_code == 400:
+        t = r.text.lower()
+        return "not_found" in t or "not found" in t or '"404"' in t
+    return False
+
+
 def download(path: str) -> bytes | None:
     r = _c().get(f"{_base()}/{BUCKET}/{path}")
-    if r.status_code in (400, 404):
+    if _missing(r):
         return None
-    r.raise_for_status()
+    if r.status_code >= 300:
+        raise RuntimeError(f"Supabase 檔案下載失敗（{r.status_code}）：{r.text[:160]}。"
+                           "請檢查 GitHub Secrets 的 SUPABASE_URL、SUPABASE_SERVICE_KEY 是否正確")
     return r.content
 
 

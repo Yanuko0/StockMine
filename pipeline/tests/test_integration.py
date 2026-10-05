@@ -130,8 +130,10 @@ def test_eod_and_screen(monkeypatch):
         from twstock import broker_files
         monkeypatch.setattr(broker_files.storage, "download_many", lambda paths: {p: None for p in paths})
         monkeypatch.setattr(broker_files.storage, "upload_many", lambda items: up.update(items))
+        monkeypatch.setattr(broker_files.storage, "download", lambda path: b'{"9800": "old"}')
         msg = cli.job_broker(d)
-        assert set(up) == {"bk/2330.json.gz", "bk/6488.json.gz"} - {"bk/6488.json.gz"}, up.keys()
+        assert set(up) == {"bk/2330.json.gz", "bk/_names.json"}, up.keys()
+        assert json.loads(up["bk/_names.json"]) == {"1440": "美林", "9800": "元大"}
         assert "主力買賣超 1 檔" in msg, msg
         mf = db.query_df(conn, "select * from public.main_force")
         assert mf["code"].tolist() == ["2330"] and int(mf["net"][0]) == 3000
