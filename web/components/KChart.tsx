@@ -28,7 +28,10 @@ interface Props {
   onCreated: (kind: DrawKind, points: DrawPoint[]) => void;
   onMoved: (id: string, points: DrawPoint[]) => void;
   onSelect: (id: string | null) => void;
+  onCross?: (index: number | null) => void; // 十字線移到第幾根（手機版自己畫均線數值用）
 }
+
+const isSmall = () => typeof window !== "undefined" && window.innerWidth < 640;
 
 function periodOf(tf: TF): Period {
   switch (tf) {
@@ -79,7 +82,34 @@ export default function KChart(p: Props) {
     c.setSymbol({ ticker: p.code, pricePrecision: 2, volumePrecision: 0 });
     c.setPeriod(periodOf(p.tf));
     c.setDataLoader({ getBars: ({ callback }) => callback(barsRef.current as never, false) });
-    c.createIndicator({ name: "TW_MA", paneId: "candle_pane", calcParams: p.maPeriods, extendData: p.maExt }, true);
+    // 手機：均線數值改在圖表上方用一行顯示（畫在圖上會兩三行、蓋到 K 棒）
+    c.createIndicator({ name: "TW_MA", paneId: "candle_pane", calcParams: p.maPeriods, extendData: p.maExt,
+      ...(isSmall() ? { createTooltipDataSource: () => ({ name: "", calcParamsText: "", legends: [], features: [] }) } : {}) }, true);
+    c.subscribeAction("onCrosshairChange", (d) => {
+      const x = d as { dataIndex?: number; paneId?: string } | undefined;
+      cb.current.onCross?.(x && x.paneId ? x.dataIndex ?? null : null);
+    });
+    // 主圖的價格範圍只看「畫面上的 K 棒」：離很遠的長天期均線不會把 K 棒擠到上面（看不到的均線會畫到畫面外）
+    c.overrideYAxis({
+      paneId: "candle_pane",
+      gap: { top: 0.1, bottom: 0.06 },
+      createRange: ({ chart: ch, defaultRange }) => {
+        const list = ch.getDataList();
+        const vr = ch.getVisibleRange();
+        let hi = -Infinity, lo = Infinity;
+        for (let i = Math.max(0, vr.from); i < Math.min(list.length, vr.to); i++) {
+          const d = list[i];
+          if (d.high > hi) hi = d.high;
+          if (d.low < lo) lo = d.low;
+        }
+        if (!isFinite(hi) || !isFinite(lo)) return defaultRange;
+        const pad = (hi - lo) * 0.04 || hi * 0.01;
+        const f = lo - pad, t = hi + pad, r = t - f;
+        return { ...defaultRange, from: f, to: t, range: r, realFrom: f, realTo: t, realRange: r, displayFrom: f, displayTo: t, displayRange: r };
+      },
+    });
+    // 最後一根 K 棒右邊只留一點空間（預設留很多，K 棒看起來偏左、偏上）
+    c.setOffsetRightDistance(window.innerWidth < 640 ? 14 : 36);
     chart.current = c;
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(node);
@@ -112,10 +142,14 @@ export default function KChart(p: Props) {
     p.subs.forEach((name) => {
       if (!subPanes.current[name]) {
         const id = c.createIndicator({
-          name, paneId: `pane_${name}`, ...(p.params[name] ? { calcParams: p.params[name] } : {}),
+          name, paneId: `pane_${name}`,
+          ...(p.params[name] ? { calcParams: p.params[name] } : name === "VOL" && isSmall() ? { calcParams: [5, 10] } : {}),
           ...(name in CHIP_INDS ? { extendData: { series: p.chips[name] ?? [], intraday: p.tf.endsWith("m") } satisfies ChipExt } : {}),
         }, false);
-        if (id) subPanes.current[name] = `pane_${name}`;
+        if (id) {
+          subPanes.current[name] = `pane_${name}`;
+          c.setPaneOptions({ id: `pane_${name}`, height: isSmall() ? 66 : 96 }); // 副圖矮一點，主圖 K 棒才夠大
+        }
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 參數變動由下方 overrideIndicator 處理

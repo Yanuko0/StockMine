@@ -129,7 +129,8 @@ export function registerAll() {
         // 線在畫面外：貼在上 / 下緣，標示方向，才不會以為沒畫
         const off = y < 0 ? "↑" : y > bounding.height ? "↓" : "";
         if (off) y = off === "↑" ? 56 : bounding.height - 4;
-        {
+        // 線在畫面外：手機不畫提示字（會蓋到 K 棒），下方的扣抵列已經有寫
+        if (!(off && bounding.width < 520)) {
           if (!off) {
             ctx.strokeStyle = PAL.d3;
             ctx.lineWidth = 1.5;
@@ -282,7 +283,10 @@ function stylesOf(t: "dark" | "light") {
   const tip = L ? "#2b3038" : "#e6e6e6";
   const cross = L ? "#5c6470" : "#4a4a4a";
   const f = CHART_FONT;
-  const txt = { color: tip, family: f, size: 12 };
+  // 手機：字小一點、間距緊一點，指標數值才排得下一行、不會蓋到 K 棒
+  const sm = typeof window !== "undefined" && window.innerWidth < 640;
+  const fs = sm ? 11 : 12;
+  const txt = { color: tip, family: f, size: fs };
   return {
     grid: { horizontal: { color: grid }, vertical: { color: grid } },
     candle: {
@@ -298,10 +302,13 @@ function stylesOf(t: "dark" | "light") {
     indicator: {
       bars: [{ upColor: "rgba(255,59,59,0.78)", downColor: "rgba(47,213,90,0.78)", noChangeColor: tick }],
       // 指標數值（例如 5T:178.70）用各條線自己的顏色，跟三竹一樣
-      tooltip: { title: { ...txt, color: tick, showParams: false }, legend: { family: f, size: 12 } },
+      tooltip: {
+        title: { ...txt, color: tick, showParams: false, ...(sm ? { marginLeft: 6, marginRight: 4 } : {}) },
+        legend: { family: f, size: fs, ...(sm ? { marginLeft: 4, marginRight: 4, marginTop: 4 } : {}) },
+      },
       lastValueMark: { text: { family: f } },
     },
-    xAxis: { tickText: { color: tick, family: f, size: 11 }, axisLine: { color: axis }, tickLine: { color: axis } },
+    xAxis: { tickText: { color: tick, family: f, size: sm ? 10 : 11 }, axisLine: { color: axis }, tickLine: { color: axis } },
     yAxis: { tickText: { color: tick, family: f, size: 11 }, axisLine: { color: axis }, tickLine: { color: axis } },
     separator: { color: axis },
     crosshair: {
@@ -311,6 +318,4 @@ function stylesOf(t: "dark" | "light") {
     overlay: { text: { family: f } },
   };
 }
-export const DARK_STYLES = stylesOf("dark");
-export const LIGHT_STYLES = stylesOf("light");
-export const chartStyles = (t: "dark" | "light") => (t === "light" ? LIGHT_STYLES : DARK_STYLES);
+export const chartStyles = (t: "dark" | "light") => stylesOf(t);
