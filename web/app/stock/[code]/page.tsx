@@ -10,6 +10,7 @@ import ChipsPanel from "@/components/ChipsPanel";
 import BrokerPanel from "@/components/BrokerPanel";
 import QuoteHeader from "@/components/QuoteHeader";
 import DrawToolbar, { COLORS } from "@/components/DrawToolbar";
+import DrawEditor from "@/components/DrawEditor";
 import { TF_LIST, MINUTES, dateToTs, resampleDaily, resampleMinutes, type Bar, type TF } from "@/lib/bars";
 import { maColor, setMaColors, type MaLine } from "@/lib/colors";
 import { loadMa, saveMa } from "@/lib/maConf";
@@ -239,7 +240,19 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
                 drawings={drawings} userId={userId} tool={toolState}
                 onCreated={onCreated}
                 onMoved={(id, points) => { setDrawings((x) => x.map((d) => (d.id === id ? { ...d, points } : d))); updateDrawing(id, { points }); }}
-                onSelect={(id) => { setSelectedId(id); if (id) setDrawOpen(true); }} />
+                onSelect={(id) => { if (id) setSelectedId(id); }} />
+            )}
+            {selected && (
+              <DrawEditor d={selected} mine={selected.created_by === userId} bars={bars} tf={tf}
+                onPoints={(points) => { setDrawings((x) => x.map((d) => (d.id === selected.id ? { ...d, points } : d))); updateDrawing(selected.id, { points }); }}
+                onRecolor={(c) => patchSelected({ color: c })} onRelabel={(s) => patchSelected({ label: s || null })}
+                onTogglePrivate={(v) => patchSelected({ is_private: v })}
+                onDuplicate={async () => {
+                  const nd = await addDrawing({ code, kind: selected.kind, points: selected.points, color: selected.color, label: selected.label, is_private: !!selected.is_private });
+                  setDrawings((x) => [...x, nd]); setSelectedId(nd.id);
+                }}
+                onDelete={async () => { const id = selected.id; setSelectedId(null); setDrawings((x) => x.filter((d) => d.id !== id)); await deleteDrawing(id); }}
+                onClose={() => setSelectedId(null)} />
             )}
           </div>
 

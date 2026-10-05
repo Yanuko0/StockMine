@@ -32,34 +32,14 @@ export default function DrawToolbar(p: Props) {
       <div className="flex gap-1 overflow-x-auto no-scrollbar">
         {TOOLS.map((t) => (
           <button key={t.kind} title={t.label}
-            className={`flex flex-col items-center min-w-[3.6rem] px-1.5 py-1 rounded-md text-[11px] whitespace-nowrap ${p.active === t.kind ? "bg-accent text-black" : "text-text"}`}
+            className={`flex flex-col items-center min-w-[3.6rem] px-1.5 py-1 rounded-md text-[11px] whitespace-nowrap ${p.active === t.kind ? "bg-accent text-accent-ink" : "text-text"}`}
             onClick={() => p.setActive(p.active === t.kind ? null : t.kind)}>
             <Icon d={t.icon} />{t.label}
           </button>
         ))}
       </div>
 
-      {p.selected ? (
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-muted whitespace-nowrap">已選取{p.mineSelected ? "" : `（${p.selected.created_by_name ?? "他人"}畫的，只能看）`}</span>
-          {p.mineSelected && (
-            <>
-              <div className="flex gap-1">
-                {COLORS.map((c) => (
-                  <button key={c} aria-label={c} onClick={() => p.onRecolor(c)}
-                    className={`w-5 h-5 rounded-full border ${p.selected!.color === c ? "border-white" : "border-transparent"}`} style={{ background: c }} />
-                ))}
-              </div>
-              <input className="flex-1 min-w-0 py-0.5 text-xs" placeholder="標籤" defaultValue={p.selected.label ?? ""}
-                key={p.selected.id} onBlur={(e) => p.onRelabel(e.target.value)} />
-              <label className="flex items-center gap-1 whitespace-nowrap">
-                <input type="checkbox" checked={!!p.selected.is_private} onChange={(e) => p.onTogglePrivate(e.target.checked)} />🔒私人
-              </label>
-              <button className="text-up whitespace-nowrap" onClick={p.onDelete}>刪除</button>
-            </>
-          )}
-        </div>
-      ) : (
+      {(
         <div className="flex items-center gap-2 text-xs">
           <div className="flex gap-1">
             {COLORS.map((c) => (
