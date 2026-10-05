@@ -26,7 +26,7 @@ export default function Funnel({ conds, logic, meta, defaultOpen }: { conds: Con
   // 讓結果變成 0 的那一條、單獨看最嚴格的那一條
   const zeroAt = logic === "OR" ? -1 : f.cumul.findIndex((c) => c === 0);
   let strict = -1;
-  f.single.forEach((n, i) => { if (conds[i].kind !== "group" && conds[i].kind !== "unsupported" && (strict < 0 || n < f.single[strict])) strict = i; });
+  f.single.forEach((n, i) => { if (conds[i]?.kind !== "group" && conds[i]?.kind !== "unsupported" && (strict < 0 || n < f.single[strict])) strict = i; });
 
   return (
     <div className="card overflow-hidden">

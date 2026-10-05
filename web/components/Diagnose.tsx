@@ -20,10 +20,10 @@ export default function Diagnose({ conds, diag }: { conds: Condition[]; diag: Re
     for (const [code, v] of Object.entries(diag)) {
       const { bits } = parse(v);
       const f = bits.map((b, i) => (b ? -1 : i)).filter((i) => i >= 0);
-      if (f.length === 1) out.push({ code, fail: f[0] });
+      if (f.length === 1 && f[0] < conds.length) out.push({ code, fail: f[0] });
     }
     return out;
-  }, [diag]);
+  }, [diag, conds.length]);
   const byFail = useMemo(() => {
     const m = new Map<number, string[]>();
     near.forEach((x) => m.set(x.fail, [...(m.get(x.fail) ?? []), x.code]));

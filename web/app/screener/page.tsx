@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import StrategyEditor from "@/components/StrategyEditor";
@@ -59,6 +59,9 @@ function Screener() {
   const [sel, setSel] = useState<string | null>(params.get("id"));
   const [editing, setEditing] = useState<Strategy | "new" | null>(null);
   const [results, setResults] = useState<(Awaited<ReturnType<typeof getResults>>[number] & { label?: string })[]>([]);
+  const [resultsFor, setResultsFor] = useState<string | null>(null); // 目前畫面上的結果是哪個策略的
+  const selRef = useRef<string | null>(sel);
+  useEffect(() => { selRef.current = sel; }, [sel]);
   const [running, setRunning] = useState<{ id: string; since: number } | null>(null);
   const [runMsg, setRunMsg] = useState("");
   const [dayIdx, setDayIdx] = useState(0);
@@ -87,10 +90,11 @@ function Screener() {
         out.unshift({ date: liveDay, items: live.items, meta: live.meta, label: `盤中 ${tw.toISOString().slice(11, 16)}` });
       }
     }
-    setResults(out);
+    // 切換策略很快時，舊策略的結果可能比較晚回來：不是目前選的就不要顯示
+    if (selRef.current === id) { setResults(out); setResultsFor(id); }
     return out;
   }
-  useEffect(() => { if (sel) { setDayIdx(0); loadResults(sel); } }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (sel) { setDayIdx(0); loadResults(sel).catch(() => {}); } }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 立即選股：排程大約 2~4 分鐘跑完，每 20 秒看一次有沒有新結果
   async function runNow(id: string) {
@@ -103,7 +107,8 @@ function Screener() {
     if (!running) return;
     const before = JSON.stringify(results.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total]));
     const t = setInterval(async () => {
-      const out = await loadResults(running.id);
+      const out = await loadResults(running.id).catch(() => null);
+      if (!out) return;
       const now = JSON.stringify(out.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total]));
       if (now !== before || Date.now() - running.since > 9 * 60e3) {
         setRunning(null);
@@ -115,7 +120,8 @@ function Screener() {
   }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cur = list.find((s) => s.id === sel);
-  const day = results[dayIdx];
+  const shown = resultsFor === sel ? results : [];
+  const day = shown[dayIdx];
   const tags = useMemo(() => [...new Set((day?.items ?? []).flatMap((x) => x.tags ?? []))].sort(), [day]);
   const items = useMemo(() => (day?.items ?? []).filter((x) => !tagFilter || x.tags?.includes(tagFilter)), [day, tagFilter]);
   const shownGroups = useMemo(() => groupItems(items, groups), [items, groups]);
@@ -177,10 +183,10 @@ function Screener() {
 
         {/* 右：結果 */}
         <div className="space-y-3 min-w-0">
-          {results.length > 0 && (
+          {shown.length > 0 && (
             <div className="overflow-x-auto no-scrollbar">
               <div className="seg">
-                {results.map((r, i) => (
+                {shown.map((r, i) => (
                   <button key={r.label ?? r.date} aria-pressed={i === dayIdx} onClick={() => { setDayIdx(i); setTagFilter(null); }}>
                     {r.label ?? r.date.slice(5)} <span className="text-muted">{r.items.length}</span>
                   </button>
@@ -191,15 +197,17 @@ function Screener() {
           {cur && (
             <div className="flex items-center gap-2 flex-wrap">
               <button className="btn btn-primary btn-sm" disabled={!!running} onClick={() => runNow(cur.id)}>
-                {running ? "選股中…" : "立即選股"}
+                {running?.id === cur.id ? "選股中…" : "立即選股"}
               </button>
               <span className="text-xs text-muted">
-                {running ? "正在用最新資料篩選，約 2~4 分鐘，完成後自動顯示" : "盤中用盤中價格、盤後用最新收盤資料，馬上篩一次"}
+                {running?.id === cur.id ? "正在用最新資料篩選，約 2~4 分鐘，完成後自動顯示"
+                  : running ? `「${list.find((x) => x.id === running.id)?.name ?? ""}」選股中，完成後才能再按`
+                  : "盤中用盤中價格、盤後用最新收盤資料，馬上篩一次"}
               </span>
             </div>
           )}
           {runMsg && <p className="text-xs up">{runMsg}</p>}
-          {cur && results.length === 0 && !running && <div className="card p-6 text-center text-muted text-sm">還沒有篩選結果。按「立即選股」馬上篩一次，或等每天收盤後的排程。</div>}
+          {cur && shown.length === 0 && !running && <div className="card p-6 text-center text-muted text-sm">還沒有篩選結果。按「立即選股」馬上篩一次，或等每天收盤後的排程。</div>}
 
           {day?.meta?.minute_codes != null && day.meta.minute_codes < day.meta.total && (
             <p className="text-xs text-accent">這個策略含分K 條件：這天只有 {day.meta.minute_codes} / {day.meta.total} 檔有分K 資料，其他股票不會被選出（補歷史分K 完成後就是全市場）。</p>
