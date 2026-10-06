@@ -48,7 +48,7 @@ function MarketStrip({ m }: { m: MarketSummary | null | undefined }) {
   return (
     <div className="grid gap-3 md:grid-cols-2">
       {/* 指數（三竹式的三格） */}
-      <section className="card p-2 grid grid-cols-3 gap-1 text-center">
+      <section className="card p-2 grid grid-cols-3 grid-rows-[auto_1fr] gap-1 text-center items-start">
         <div className="rounded-xl bg-panel-2 py-2 px-1 min-w-0">
           <div className="text-[15px] font-semibold">加權指</div>
           {t ? (
@@ -68,7 +68,7 @@ function MarketStrip({ m }: { m: MarketSummary | null | undefined }) {
           <div className="text-[20px] font-semibold num leading-tight"><span className="up">{b.up}</span><span className="text-muted text-sm"> / </span><span className="down">{b.down}</span></div>
           <div className="text-[12px] text-muted num">平 {b.flat}・{m.date.slice(5)}</div>
         </div>
-        {t && <div className="col-span-3 px-2 pt-1"><Spark data={t.spark} w={300} h={44} fluid area /></div>}
+        {t && <div className="col-span-3 px-2 pt-1 self-stretch h-full min-h-[44px]"><Spark data={t.spark} w={300} h={44} fluid fill area /></div>}
       </section>
 
       {/* 市場漲跌 */}
@@ -81,6 +81,7 @@ function MarketStrip({ m }: { m: MarketSummary | null | undefined }) {
         </div>
         {dist && dist.length === 11 && (
           <div className="mt-3">
+            <div className="text-[11px] text-muted mb-1">漲跌幅分布（%）</div>
             <div className="grid grid-cols-11 gap-1 items-end h-[120px]">
               {dist.map((n, i) => {
                 const c = i < 5 ? "var(--down)" : i === 5 ? "var(--faint)" : "var(--up)";
@@ -94,7 +95,7 @@ function MarketStrip({ m }: { m: MarketSummary | null | undefined }) {
             </div>
             <div className="grid grid-cols-11 gap-1 mt-1 text-center">
               {DIST_LABELS.map((l, i) => (
-                <span key={l} className="text-[10px] num leading-tight" style={{ color: i < 5 ? "var(--down)" : i === 5 ? "var(--muted)" : "var(--up)" }}>{l}<br />%</span>
+                <span key={l} className="text-[10px] num leading-tight whitespace-nowrap" style={{ color: i < 5 ? "var(--down)" : i === 5 ? "var(--muted)" : "var(--up)" }}>{l}</span>
               ))}
             </div>
           </div>

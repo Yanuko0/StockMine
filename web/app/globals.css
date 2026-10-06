@@ -14,8 +14,8 @@
   --line: #303030;        /* 分隔線 */
   --line-soft: #262626;
   --text: #f2f2f2;
-  --muted: #9b9b9b;
-  --faint: #666666;
+  --muted: #a3a3a3;
+  --faint: #858585;      /* 次要說明文字（對比夠才看得清楚） */
   --up: #ff3b3b;
   --down: #2fd55a;
   --up-bg: rgba(255, 59, 59, 0.16);
@@ -40,7 +40,7 @@
   --line-soft: #eef0f3;
   --text: #14171c;
   --muted: #646d7a;
-  --faint: #9aa2ad;
+  --faint: #7b8490;
   --up: #e5313a;
   --down: #0e9f5b;
   --up-bg: rgba(229, 49, 58, 0.10);
@@ -112,10 +112,15 @@ select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239b9b9b' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; background-size: 12px;
 }
+/* 下拉選單展開的清單：Windows / 部分瀏覽器會用白底，字要跟著換色，不然會看不到 */
+select option, select optgroup { background-color: var(--panel); color: var(--text); }
+select option:checked { background-color: var(--panel-2); color: var(--accent); font-weight: 600; }
+select option:disabled { color: var(--faint); }
 input.bare, input.bare:focus { background: transparent; border-color: transparent; box-shadow: none; outline: none; }
 input[type="checkbox"], input[type="radio"] { min-height: 0; accent-color: var(--accent); width: 16px; height: 16px; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
-button { cursor: pointer; -webkit-user-select: none; user-select: none; }
+button { cursor: pointer; -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+a { touch-action: manipulation; }
 button:disabled { opacity: .45; cursor: default; }
 
 }
@@ -123,7 +128,7 @@ button:disabled { opacity: .45; cursor: default; }
 @layer components {
 /* ---------- 按鈕 ---------- */
 .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; flex-shrink: 0;
   border: 1px solid var(--line); border-radius: 10px; padding: 7px 14px; min-height: 36px;
   background: var(--panel-2); font-weight: 500;
   transition: background .15s, border-color .15s, transform .08s;
@@ -149,6 +154,8 @@ button:disabled { opacity: .45; cursor: default; }
   min-height: 28px;
 }
 .chip:hover { border-color: var(--faint); }
+.chip:active, .seg > button:active, .icon-btn:active, .row-hover:active { transform: scale(.97); }
+.chip, .seg > button, .icon-btn { transition: background .15s, border-color .15s, color .15s, transform .1s; }
 .chip-on, .chip-on:hover { background: var(--accent-bg); color: var(--accent); border-color: var(--accent); font-weight: 600; }
 
 .seg { display: inline-flex; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 2px; gap: 2px; }
@@ -238,6 +245,20 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .flash-down { animation: flashDown .8s ease-out; }
 @keyframes flashUp { from { background: var(--up-bg); } }
 @keyframes flashDown { from { background: var(--down-bg); } }
+
+/* ---------- 觸控：手指點得到（至少 36～40px 高） ---------- */
+@media (pointer: coarse) {
+  .seg > button { min-height: 34px; padding: 6px 14px; font-size: 14px; }
+  .chip { min-height: 34px; padding: 6px 13px; font-size: 14px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .btn-sm { min-height: 34px; padding: 5px 12px; }
+}
+
+/* ---------- 換頁：內容淡入、稍微往上（不會覺得突然跳出來） ---------- */
+.page, .page-narrow { animation: pageIn .22s cubic-bezier(.2,.8,.3,1); }
+@keyframes pageIn { from { opacity: 0; transform: translateY(6px); } }
+/* 卡片、清單一個一個出現時用 */
+.fade-in { animation: fade .2s ease-out; }
 
 /* ---------- 其他 ---------- */
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }

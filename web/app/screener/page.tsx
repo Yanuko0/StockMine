@@ -295,13 +295,14 @@ function Screener() {
             <div className="flex items-center gap-2 px-4 py-2.5 flex-wrap">
               <span className="text-[16px]">共 <span className="param num font-semibold">{items.length}</span> 檔</span>
               {day.items.length > 0 && (
-                <select className={`chip !pr-6 ${gTop ? "chip-on" : ""}`} value={gTop} onChange={(e) => setGTop(+e.target.value)}
-                  title="只看全球強勢族群對應的台股（用目前的結果直接篩，不用重跑）">
-                  <option value={0}>全球強勢：不篩</option>
-                  <option value={3}>全球強勢前 3 名</option>
-                  <option value={5}>全球強勢前 5 名</option>
-                  <option value={10}>全球強勢前 10 名</option>
-                </select>
+                <div className="order-last w-full sm:w-auto sm:order-none flex items-center gap-1.5" title="只看全球強勢族群對應的台股（用目前的結果直接篩，不用重跑）">
+                  <span className="text-[13px] text-muted whitespace-nowrap">全球強勢</span>
+                  <div className="seg">
+                    {[[0, "不篩"], [3, "前3"], [5, "前5"], [10, "前10"]].map(([v, l]) => (
+                      <button key={v} aria-pressed={gTop === v} onClick={() => setGTop(v as number)}>{l}</button>
+                    ))}
+                  </div>
+                </div>
               )}
               {day.items.length > 0 && (
                 <div className="seg ml-auto">
@@ -329,7 +330,7 @@ function Screener() {
             <p className="px-4 pb-2 text-sm text-muted text-center">這次的結果裡沒有全球前 {gTop} 名族群的股票</p>
           )}
           {day && (grouped || gTop > 0) && (
-            <div className="space-y-3 px-3">
+            <div className="space-y-3 px-3 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-3 lg:items-start">
               {shownGroups.map((g) => (
                 <div key={g.name} className="card overflow-hidden">
                   <div className="card-h text-sm">
