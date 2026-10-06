@@ -291,7 +291,71 @@ export const WATCH_EVENT = "stockmine-watch";
 function watchChanged() { watchCache = null; window.dispatchEvent(new Event(WATCH_EVENT)); }
 
 /** 報價（盤後）：最新收盤、漲跌、量，以及近 20 日收盤（走勢小圖） */
-export interface Quote { code: string; date: string; close: number; prev: number | null; chg: number; pct: number; volume: number; spark: number[] }
+export interface Quote { code: string; date: string; close: number; prev: number | null; chg: number; pct: number; volume: number; spark: number[]; time?: string }
+
+// ---------- 即時報價（盤中 / 收盤後到晚上排程跑完前，用證交所即時資料蓋過資料庫的收盤價） ----------
+export type LiveQuote = {
+  price: number | null; prev: number | null; open: number | null; high: number | null; low: number | null;
+  vol: number | null; date: string; time: string;
+};
+const liveCache = new Map<string, { ts: number; q: LiveQuote | null }>();
+/** 一次問很多檔；10 秒內問過的直接用快取。拿不到（證交所擋、沒網路）就回空的。 */
+export async function getLiveQuotes(codes: string[]): Promise<Record<string, LiveQuote>> {
+  const now = Date.now();
+  const out: Record<string, LiveQuote> = {};
+  const need: string[] = [];
+  for (const c of new Set(codes)) {
+    const hit = liveCache.get(c);
+    if (hit && now - hit.ts < 10_000) { if (hit.q) out[c] = hit.q; } else need.push(c);
+  }
+  for (let i = 0; i < need.length; i += 120) {
+    const part = need.slice(i, i + 120);
+    try {
+      const r = await fetch(`/api/live?codes=${part.join(",")}`, { signal: AbortSignal.timeout(8000) });
+      const js = (await r.json()) as { quotes: Record<string, LiveQuote> };
+      for (const c of part) {
+        const q = js.quotes?.[c] ?? null;
+        liveCache.set(c, { ts: now, q });
+        if (q) out[c] = q;
+      }
+    } catch { /* 用收盤資料 */ }
+  }
+  return out;
+}
+/** 台灣時間週一～週五 08:30～23:59：可能有今天的即時 / 收盤資料還沒進資料庫 */
+export function liveWindow(d = new Date()) {
+  const tw = new Date(d.getTime() + 8 * 3600 * 1000);
+  const day = tw.getUTCDay(), m = tw.getUTCHours() * 60 + tw.getUTCMinutes();
+  return day >= 1 && day <= 5 && m >= 8 * 60 + 30;
+}
+/** 盤中（09:00～13:35）：需要一直更新 */
+export function marketOpen(d = new Date()) {
+  const tw = new Date(d.getTime() + 8 * 3600 * 1000);
+  const day = tw.getUTCDay(), m = tw.getUTCHours() * 60 + tw.getUTCMinutes();
+  return day >= 1 && day <= 5 && m >= 9 * 60 && m <= 13 * 60 + 35;
+}
+export function applyLive(q: Quote, l: LiveQuote | undefined): Quote {
+  if (!l || l.price == null || !l.date || l.date < q.date) return q;
+  const newer = l.date > q.date;
+  const prev = l.prev ?? (newer ? q.close : q.prev);
+  const close = l.price;
+  const chg = prev != null ? close - prev : 0;
+  const spark = newer ? [...q.spark.slice(-19), close] : [...q.spark.slice(0, -1), close];
+  return { ...q, date: l.date, close, prev, chg, pct: prev ? (chg / prev) * 100 : 0, volume: l.vol ?? q.volume, spark, time: l.time };
+}
+/** 把即時報價接到日K 最後一根（今天還沒有日K 就新增一根） */
+export function applyLiveBars(daily: Bar[], l: LiveQuote | undefined): Bar[] {
+  if (!l || l.price == null || !l.date || !daily.length) return daily;
+  const last = daily[daily.length - 1];
+  if (!last.date || l.date < last.date) return daily;
+  const price = l.price;
+  const bar: Bar = {
+    timestamp: dateToTs(l.date), date: l.date,
+    open: l.open ?? price, high: Math.max(l.high ?? price, price), low: Math.min(l.low ?? price, price),
+    close: price, volume: l.vol ?? (l.date === last.date ? last.volume : 0),
+  };
+  return l.date > last.date ? [...daily, bar] : [...daily.slice(0, -1), bar];
+}
 export async function getQuotes(codes: string[]): Promise<Record<string, Quote>> {
   if (!codes.length) return {};
   const since = new Date(Date.now() - 45 * 86400000).toISOString().slice(0, 10);
@@ -314,6 +378,10 @@ export async function getQuotes(codes: string[]): Promise<Record<string, Quote>>
     const chg = pc != null ? close - pc : 0;
     out[code] = { code, date: last.date, close, prev: pc, chg, pct: pc ? (chg / pc) * 100 : 0,
       volume: Math.round(+last.volume / 1000), spark: a.slice(-20).map((x) => +x.close) };
+  }
+  if (liveWindow()) {
+    const live = await getLiveQuotes(Object.keys(out));
+    for (const c of Object.keys(out)) out[c] = applyLive(out[c], live[c]);
   }
   return out;
 }

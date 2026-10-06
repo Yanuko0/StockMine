@@ -47,12 +47,12 @@ def is_trading_day(conn, d: date) -> bool:
 
 
 # ------------------------------------------------------------------ eod
-def job_eod(d: date) -> str:
+def _eod_one(d: date, wait_inst: bool = True) -> tuple[int, int, int, int] | None:
+    """抓一天的日K、三大法人寫進資料庫。休市（沒有行情）回傳 None。"""
     tw = official.twse_quotes(d)
     tp = official.tpex_quotes(d)
     if tw.empty and tp.empty:
-        _set_output("trading", "false")
-        return "休市（沒有行情資料）"
+        return None
     q = pd.concat([tw, tp], ignore_index=True)
     stocks = q[["code", "name", "market"]].drop_duplicates("code").copy()
     stocks["kind"] = stocks["code"].map(official.kind_of)
@@ -60,13 +60,15 @@ def job_eod(d: date) -> str:
     prices = q.drop(columns=["name", "market"])
     prices = prices[prices["close"].notna()]  # 沒成交的不存
 
-    # 三大法人：官方通常 15:00~16:30 公布，最多等 40 分鐘
+    # 三大法人：官方通常 15:00~16:30 公布，最多等 40 分鐘（補過去的日子只問一次）
     inst = pd.DataFrame()
-    for i in range(5):
+    for i in range(5 if wait_inst else 1):
         a = official.twse_institutional(d)
         b = official.tpex_institutional(d)
         if not a.empty and not b.empty:
             inst = pd.concat([a, b], ignore_index=True)
+            break
+        if not wait_inst:
             break
         print(f"[eod] 三大法人尚未公布，10 分鐘後重試（{i + 1}/5）")
         time.sleep(600)
@@ -75,6 +77,42 @@ def job_eod(d: date) -> str:
         db.upsert(conn, "stocks", stocks, ["code"])
         n1 = db.upsert(conn, "daily_prices", prices, ["code", "date"])
         n2 = db.upsert(conn, "institutional", inst, ["code", "date"]) if not inst.empty else 0
+    return n1, n2, len(tw), len(tp)
+
+
+def _missing_days(d: date, back: int = 10) -> list[date]:
+    """前幾天（平日）資料庫裡沒有日K 的日子：排程被 GitHub 延遲或漏跑時自動補上。"""
+    with db.connect() as conn:
+        have = set(db.query_df(conn, "select distinct date from public.daily_prices where date >= %s and date < %s",
+                               (d - timedelta(days=back), d))["date"].tolist())
+        last = db.query_df(conn, "select max(date) as m from public.daily_prices where date < %s", (d,))["m"][0]
+    if last is None:
+        return []
+    out = []
+    day = d - timedelta(days=back)
+    while day < d:
+        if day.weekday() < 5 and day > last and day not in have:
+            out.append(day)
+        day += timedelta(days=1)
+    return out
+
+
+def job_eod(d: date) -> str:
+    # 先補漏掉的日子（例如排程被延到隔天凌晨才跑）
+    filled = []
+    for day in _missing_days(d):
+        try:
+            if _eod_one(day, wait_inst=False):
+                filled.append(day.strftime("%m-%d"))
+        except Exception as e:  # noqa: BLE001
+            print(f"[eod] 補 {day} 失敗：{e}")
+    r = _eod_one(d)
+    fill_msg = f"；補上 {'、'.join(filled)}" if filled else ""
+    if r is None:
+        _set_output("trading", "false")
+        return "休市（沒有行情資料）" + fill_msg
+    n1, n2, ntw, ntp = r
+    with db.connect() as conn:
         prune_old(conn, d)
     _set_output("trading", "true")
     extra = []
@@ -86,7 +124,19 @@ def job_eod(d: date) -> str:
         except Exception as e:  # noqa: BLE001  選股用的額外資料失敗，不影響日K
             traceback.print_exc()
             extra.append(f"{fn.__name__} 失敗：{e}")
-    return f"日K {n1} 筆（上市 {len(tw)}、上櫃 {len(tp)}），三大法人 {n2} 筆；" + "；".join(extra)
+    return f"{d:%m-%d} 日K {n1} 筆（上市 {ntw}、上櫃 {ntp}），三大法人 {n2} 筆{fill_msg}；" + "；".join(extra)
+
+
+def session_date(now: datetime | None = None) -> date:
+    """沒指定日期時要處理「哪一個交易日」：台灣時間 14:00 以前（例如 GitHub 把 16:10 的排程延到隔天凌晨才跑），
+    處理的是前一個平日，不是今天（今天還沒收盤，會被誤判成休市）。"""
+    now = now or datetime.now(config.TW_TZ)
+    d = now.date()
+    if now.hour < 14:
+        d -= timedelta(days=1)
+        while d.weekday() >= 5:
+            d -= timedelta(days=1)
+    return d
 
 
 def prune_old(conn, d: date) -> None:
@@ -811,7 +861,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--resume", action="store_true")
     p.add_argument("--strategy", help="策略 ID（立即選股）")
     a = p.parse_args(argv)
-    d = config.parse_date(a.date)
+    # 盤後工作沒指定日期：用「最近一個該處理的交易日」（排程被延到隔天凌晨也不會抓錯天）
+    d = config.parse_date(a.date) if a.date or a.job not in ("eod", "broker", "minutes", "screen", "margin") else session_date()
     codes = [c.strip() for c in a.codes.split(",") if c.strip()] if a.codes else None
 
     try:

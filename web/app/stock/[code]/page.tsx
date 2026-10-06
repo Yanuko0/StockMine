@@ -20,7 +20,7 @@ import { deductIndex, deduct3low, vpBox } from "@/lib/indicators";
 import { TimeMapper } from "@/lib/timeline";
 import { TOOLS, type DrawKind } from "@/lib/tools";
 import {
-  addDrawing, addWatch, allStocks, deleteDrawing, getDaily, getDrawings, getInst, getMainForce, getMinute, getSetting, getWatchlist, me,
+  addDrawing, addWatch, allStocks, applyLiveBars, deleteDrawing, getDaily, getLiveQuotes, liveWindow, marketOpen, type LiveQuote, getDrawings, getInst, getMainForce, getMinute, getSetting, getWatchlist, me,
   pushRecent, removeWatch, subscribeDrawings, updateDrawing, type Drawing, type DrawPoint, type Stock,
 } from "@/lib/data";
 
@@ -53,7 +53,10 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
   const router = useRouter();
   useEffect(() => { pushRecent(code); }, [code]);
   const [tf, setTf] = useState<TF>(() => loadPref("tf", "D"));
-  const [daily, setDaily] = useState<Bar[]>([]);
+  const [dailyRaw, setDaily] = useState<Bar[]>([]);
+  const [live, setLive] = useState<LiveQuote | undefined>(undefined);
+  // 盤中 / 收盤後還沒進資料庫前：用證交所即時報價接上今天這一根
+  const daily = useMemo(() => applyLiveBars(dailyRaw, live), [dailyRaw, live]);
   const [minute, setMinute] = useState<Bar[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [subs, setSubs] = useState<SubInd[]>(() => loadPref("subs", ["VOL", "TW_KD"]));
@@ -115,7 +118,17 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
     getSetting<{ ma: number }>("deduct3low", { ma: 5 }).then((v) => setD3N(v?.ma ?? 5));
     getSetting<number>("deduct_offset", 0).then((v) => setOffset(Number(v) || 0));
     setLoading(true);
+    setLive(undefined);
     getDaily(code).then((d) => { setDaily(d); setLoading(false); });
+  }, [code]);
+
+  useEffect(() => {
+    if (!liveWindow()) return;
+    let alive = true;
+    const pull = () => getLiveQuotes([code]).then((m) => { if (alive && m[code]) setLive(m[code]); });
+    pull();
+    const id = setInterval(() => { if (marketOpen() && !document.hidden) pull(); }, 15_000);
+    return () => { alive = false; clearInterval(id); };
   }, [code]);
 
   useEffect(() => {
@@ -402,7 +415,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
             <button className="icon-btn !w-7 !h-7 absolute right-1.5 top-1.5 z-10" title="收起個股資訊" onClick={() => setSideOpen(false)}>
               <Icon name="dblRight" className="w-4 h-4" />
             </button>
-            <QuoteHeader daily={daily} side />
+            <QuoteHeader daily={daily} side liveTime={live?.date === daily[daily.length - 1]?.date ? live?.time : undefined} />
             <div className="px-3 py-2 border-y border-line">
               <div className="seg w-full">
                 {([["chips", "籌碼"], ["broker", "分點進出"]] as const).map(([k, l]) => (
@@ -416,7 +429,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
         </div>
       ) : (
         <>
-          <QuoteHeader daily={daily} />
+          <QuoteHeader daily={daily} liveTime={live?.date === daily[daily.length - 1]?.date ? live?.time : undefined} />
           <div className="tabbar" role="tablist">
             {([["tech", "技術"], ["chips", "籌碼"], ["broker", "進出"]] as const).map(([k, l]) => (
               <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>

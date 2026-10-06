@@ -6,7 +6,7 @@ import { InstallBanner } from "@/components/InstallApp";
 import Spark from "@/components/ui/Spark";
 import { openSearch } from "@/components/SearchPalette";
 import {
-  allStocks, getAlerts, getGroups, getJobRuns, getMarketSummary, getQuotes, getResults, getStrategies, getWatchlist,
+  allStocks, getAlerts, getGroups, getJobRuns, getMarketSummary, applyLive, getLiveQuotes, getQuotes, marketOpen, getResults, getStrategies, getWatchlist,
   prefetchDaily, removeWatch, WATCH_EVENT, type MarketSummary, type Quote, type RankRow, type TradeAlert, type UserGroup,
 } from "@/lib/data";
 
@@ -156,6 +156,20 @@ function Watchlist() {
     const need = codes.filter((c) => !quotes[c]);
     if (need.length) getQuotes(need).then((q) => setQuotes((o) => ({ ...o, ...q }))).catch(() => {});
   }, [codes, quotes]);
+
+  // 盤中每 20 秒更新即時價（畫面在背景時不問）
+  useEffect(() => {
+    if (!codes.length) return;
+    const id = setInterval(() => {
+      if (!marketOpen() || document.hidden) return;
+      getLiveQuotes(codes).then((m) => setQuotes((o) => {
+        const n = { ...o };
+        for (const c of codes) if (n[c] && m[c]) n[c] = applyLive(n[c], m[c]);
+        return n;
+      })).catch(() => {});
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [codes]);
 
   const rows = useMemo(() => {
     if (!sort) return codes;

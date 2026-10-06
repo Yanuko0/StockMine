@@ -8,7 +8,7 @@ function Cell({ k, v, c = "" }: { k: string; v: string; c?: string }) {
 }
 
 /** 報價區。side = 電腦版右側欄（直式、字比較大） */
-export default function QuoteHeader({ daily, side = false }: { daily: Bar[]; side?: boolean }) {
+export default function QuoteHeader({ daily, side = false, liveTime }: { daily: Bar[]; side?: boolean; liveTime?: string }) {
   const last = daily[daily.length - 1];
   const prev = daily[daily.length - 2];
   if (!last) {
@@ -35,7 +35,7 @@ export default function QuoteHeader({ daily, side = false }: { daily: Bar[]; sid
       <div className="text-sm num font-medium">
         {chg > 0 ? "▲" : chg < 0 ? "▼" : ""}{fmt(Math.abs(chg))}　{chg > 0 ? "+" : ""}{fmt(pct)}%
       </div>
-      <div className="text-[11px] text-muted mt-0.5">{last.date} 收盤</div>
+      <div className="text-[11px] text-muted mt-0.5">{liveTime ? `${last.date?.slice(5)} ${liveTime} ${liveTime >= "13:30" ? "收盤" : "即時"}` : `${last.date} 收盤`}</div>
     </div>
   );
   const cells = (
@@ -91,7 +91,7 @@ export default function QuoteHeader({ daily, side = false }: { daily: Bar[]; sid
         <span>低 <span className={px(last.low)}>{fmt(last.low)}</span></span>
         <span>昨收 <span className="text-text">{fmt(prev?.close)}</span></span>
         <span>振幅 <span className="text-text">{fmt(amp)}%</span></span>
-        <span>{last.date?.slice(5)} 收盤</span>
+        <span>{last.date?.slice(5)} {liveTime ? `${liveTime} ${liveTime >= "13:30" ? "收盤" : "即時"}` : "收盤"}</span>
       </div>
     </div>
   );

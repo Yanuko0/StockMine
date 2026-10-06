@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Spark from "@/components/ui/Spark";
 import Icon from "@/components/ui/Icon";
 import {
-  allStocks, getGroups, getQuotes, getRecent, getWatchlist, prefetchDaily, WATCH_EVENT, type Quote, type UserGroup,
+  allStocks, getGroups, applyLive, getLiveQuotes, getQuotes, marketOpen, getRecent, getWatchlist, prefetchDaily, WATCH_EVENT, type Quote, type UserGroup,
 } from "@/lib/data";
 
 const Row = memo(function Row({ code, name, q, on, onPick, mini }: { code: string; name: string; q?: Quote; on: boolean; onPick: (c: string) => void; mini?: boolean }) {
@@ -73,6 +73,20 @@ export default function WatchlistPane() {
     const need = codes.filter((c) => !quotes[c]);
     if (need.length) getQuotes(need).then((q) => setQuotes((o) => ({ ...o, ...q }))).catch(() => {});
   }, [codes, quotes]);
+
+  // 盤中每 20 秒更新即時價（畫面在背景時不問）
+  useEffect(() => {
+    if (!codes.length) return;
+    const id = setInterval(() => {
+      if (!marketOpen() || document.hidden) return;
+      getLiveQuotes(codes).then((m) => setQuotes((o) => {
+        const n = { ...o };
+        for (const c of codes) if (n[c] && m[c]) n[c] = applyLive(n[c], m[c]);
+        return n;
+      })).catch(() => {});
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [codes]);
 
   // ↑ ↓ 切換股票
   useEffect(() => {

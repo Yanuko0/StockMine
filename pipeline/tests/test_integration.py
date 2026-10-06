@@ -187,3 +187,14 @@ def test_eod_and_screen(monkeypatch):
         assert sm["inst"]["foreign_buy"][0]["code"] in ("2330", "6488")
         s2 = db.query_df(conn, "select code, industry, shares from public.stocks where code='6488'")
         assert s2["industry"][0] == "半導體業" and int(s2["shares"][0]) == 478000000
+
+
+def test_eod_fills_missed_days(monkeypatch):
+    """排程漏跑 / 被延遲：下次執行時自動補上中間缺的交易日。"""
+    from twstock import cli, db
+    with db.connect() as conn:
+        db.execute(conn, "insert into public.daily_prices (code, date, close) values ('8888','2001-08-23',10) on conflict do nothing")
+        miss = cli._missing_days(date(2001, 8, 29), back=10)
+        db.execute(conn, "delete from public.daily_prices where code = '8888'")
+    # 2001/8/23(四) 有資料；8/24(五)、8/27(一)、8/28(二) 沒有；週末不算
+    assert miss == [date(2001, 8, 24), date(2001, 8, 27), date(2001, 8, 28)]

@@ -196,3 +196,17 @@ def test_live_extend_with_snapshot_and_cache(tmp_path, monkeypatch):
     pd.testing.assert_frame_equal(got[m1.columns], m1, check_dtype=False)
     cli.save_live_m1(d, {"2330": m1}, datetime.now(config.TW_TZ) - timedelta(minutes=50))
     assert cli.load_live_m1(d) is None
+
+
+def test_session_date_handles_late_github_runs():
+    from datetime import datetime
+    from twstock import cli, config
+    tw = config.TW_TZ
+    # 週一 16:10 正常跑 → 週一
+    assert cli.session_date(datetime(2026, 10, 5, 16, 10, tzinfo=tw)) == date(2026, 10, 5)
+    # 被 GitHub 延到週二凌晨 01:05 才跑 → 還是處理週一
+    assert cli.session_date(datetime(2026, 10, 6, 1, 5, tzinfo=tw)) == date(2026, 10, 5)
+    # 週一凌晨 → 上週五
+    assert cli.session_date(datetime(2026, 10, 5, 2, 0, tzinfo=tw)) == date(2026, 10, 2)
+    # 週六凌晨 → 週五
+    assert cli.session_date(datetime(2026, 10, 10, 3, 0, tzinfo=tw)) == date(2026, 10, 9)
