@@ -299,14 +299,14 @@ export type LiveQuote = {
   vol: number | null; date: string; time: string;
 };
 const liveCache = new Map<string, { ts: number; q: LiveQuote | null }>();
-/** 一次問很多檔；10 秒內問過的直接用快取。拿不到（證交所擋、沒網路）就回空的。 */
+/** 一次問很多檔；4 秒內問過的直接用快取。拿不到（證交所擋、沒網路）就回空的。 */
 export async function getLiveQuotes(codes: string[]): Promise<Record<string, LiveQuote>> {
   const now = Date.now();
   const out: Record<string, LiveQuote> = {};
   const need: string[] = [];
   for (const c of new Set(codes)) {
     const hit = liveCache.get(c);
-    if (hit && now - hit.ts < 10_000) { if (hit.q) out[c] = hit.q; } else need.push(c);
+    if (hit && now - hit.ts < 4_000) { if (hit.q) out[c] = hit.q; } else need.push(c);
   }
   for (let i = 0; i < need.length; i += 120) {
     const part = need.slice(i, i + 120);

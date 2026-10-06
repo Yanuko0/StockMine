@@ -1,5 +1,6 @@
 "use client";
 import type { Bar } from "@/lib/bars";
+import Tick from "@/components/ui/Tick";
 
 const fmt = (v: number | undefined, d = 2) => (v == null || isNaN(v) ? "-" : v.toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }));
 
@@ -29,7 +30,7 @@ export default function QuoteHeader({ daily, side = false, liveTime }: { daily: 
   const price = (
     <div className={cls}>
       <div className={`${side ? "text-[34px]" : "text-3xl"} font-bold num leading-tight tracking-tight`}>
-        {fmt(last.close)}
+        <Tick v={last.close} className="px-0.5">{fmt(last.close)}</Tick>
         {(hitUp || hitDown) && <span className={`ml-1.5 text-xs align-middle px-1.5 py-0.5 rounded ${hitUp ? "bg-up" : "bg-down"} text-white`}>{hitUp ? "漲停" : "跌停"}</span>}
       </div>
       <div className="text-sm num font-medium">
@@ -74,7 +75,7 @@ export default function QuoteHeader({ daily, side = false, liveTime }: { daily: 
       <div className="flex items-end gap-3">
         <div className={`flex-1 min-w-0 ${cls}`}>
           <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-[32px] leading-none font-semibold num tracking-tight">{fmt(last.close)}</span>
+            <Tick v={last.close} className="text-[32px] leading-none font-semibold num tracking-tight px-0.5">{fmt(last.close)}</Tick>
             <span className="text-[15px] num whitespace-nowrap">{chg > 0 ? "▲" : chg < 0 ? "▼" : ""}{fmt(Math.abs(chg))}({fmt(pct)}%)</span>
             {(hitUp || hitDown) && <span className={`text-xs px-1.5 py-0.5 rounded ${hitUp ? "bg-up" : "bg-down"} text-white`}>{hitUp ? "漲停" : "跌停"}</span>}
           </div>

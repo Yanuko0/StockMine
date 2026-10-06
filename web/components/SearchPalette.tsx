@@ -1,9 +1,11 @@
 "use client";
 // 全域搜尋（鍵盤精靈）：Ctrl/⌘+K、「/」，或在任何地方直接打股號 / 名稱就會跳出來
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Icon from "@/components/ui/Icon";
+import Tick from "@/components/ui/Tick";
 import { allStocks, getRecent, getWatchlist, prefetchDaily, searchStocks, type Stock } from "@/lib/data";
+import { livePx, useLiveQuotes } from "@/lib/useLive";
 
 export const OPEN_SEARCH = "stockmine-search";
 export function openSearch(initial = "") {
@@ -69,6 +71,8 @@ export default function SearchPalette() {
   }, [q, open]);
 
   useEffect(() => { if (list[idx]) prefetchDaily(list[idx].code); }, [list, idx]);
+  // 搜尋結果的即時價（打開時才抓；盤中每 5 秒更新）
+  const live = useLiveQuotes(useMemo(() => (open ? list.slice(0, 20).map((x) => x.code) : []), [open, list]));
 
   if (!open) return null;
   const close = () => { openRef.current = false; setOpen(false); };
@@ -100,6 +104,17 @@ export default function SearchPalette() {
               <span className="font-semibold num w-14">{s.code}</span>
               <span className="flex-1 truncate">{s.name}</span>
               {watch.has(s.code) && <Icon name="star" className="w-4 h-4 text-accent" fill="currentColor" stroke={0} />}
+              {(() => {
+                const lp = livePx(live[s.code], null, null);
+                if (lp.px == null) return null;
+                const c = (lp.pct ?? 0) > 0 ? "up" : (lp.pct ?? 0) < 0 ? "down" : "text-muted";
+                return (
+                  <span className={`text-right num leading-tight ${c}`}>
+                    <Tick v={lp.px} className="block text-[14px] font-semibold">{lp.px.toFixed(2)}</Tick>
+                    <span className="block text-[11px]">{(lp.pct ?? 0) > 0 ? "+" : ""}{(lp.pct ?? 0).toFixed(2)}%</span>
+                  </span>
+                );
+              })()}
               <span className="tag tag-muted">{s.market === "TWSE" ? "上市" : "上櫃"}{s.kind === "etf" ? "・ETF" : ""}</span>
             </button>
           ))}

@@ -248,3 +248,8 @@ table.tbl tbody tr:hover { background: var(--panel-2); }
 .scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
 .scroll-thin::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* 價格跳動閃一下 */
+.tick { border-radius: 4px; transition: background-color .9s ease-out; }
+.tick-up { background-color: color-mix(in srgb, var(--up) 32%, transparent); transition: none; }
+.tick-down { background-color: color-mix(in srgb, var(--down) 32%, transparent); transition: none; }

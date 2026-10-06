@@ -8,8 +8,10 @@ import Funnel from "@/components/Funnel";
 import Diagnose from "@/components/Diagnose";
 import Icon from "@/components/ui/Icon";
 import { condText } from "@/lib/condText";
+import Tick from "@/components/ui/Tick";
+import { livePx, useLiveQuotes } from "@/lib/useLive";
 import {
-  deleteStrategy, getGroups, getLive, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
+  deleteStrategy, getGlobalThemes, getGroups, getLive, type GlobalThemes, type LiveQuote, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
 } from "@/lib/data";
 
 type Group = { name: string; custom: boolean; items: ScreenItem[] };
@@ -34,9 +36,11 @@ function fmtCap(v: number | null | undefined) {
   return v >= 10000 ? `${(v / 10000).toFixed(2)}兆` : `${Math.round(v).toLocaleString()}億`;
 }
 
-function ItemRow({ it, leader }: { it: ScreenItem; leader?: boolean }) {
-  const pct = it.chg_pct ?? 0;
-  const chg = it.chg_pct == null ? null : it.close - it.close / (1 + pct / 100);
+function ItemRow({ it, leader, live, badge }: { it: ScreenItem; leader?: boolean; live?: LiveQuote; badge?: string }) {
+  const lp = livePx(live, it.close, it.chg_pct);
+  const close = lp.px ?? it.close;
+  const pct = lp.pct ?? 0;
+  const chg = lp.pct == null ? null : close - close / (1 + pct / 100);
   const cls = pct > 0 ? "up" : pct < 0 ? "down" : "";
   return (
     <Link href={`/stock/${it.code}`} onMouseEnter={() => prefetchDaily(it.code)} className="flex items-center px-4 py-2.5 gap-3 row-hover">
@@ -44,6 +48,7 @@ function ItemRow({ it, leader }: { it: ScreenItem; leader?: boolean }) {
         <span className="flex items-center gap-1.5">
           <span className="text-[17px] font-semibold truncate">{it.name}</span>
           {leader && <span className="text-[10px] px-1 rounded bg-accent text-accent-ink shrink-0">龍頭</span>}
+          {badge && <span className="text-[10px] px-1 rounded bg-[var(--accent-bg)] text-accent shrink-0">{badge}</span>}
         </span>
         <span className="flex items-center gap-1.5 text-[12px] text-muted mt-0.5 min-w-0">
           <span className="num">{it.code}</span>
@@ -57,7 +62,7 @@ function ItemRow({ it, leader }: { it: ScreenItem; leader?: boolean }) {
         )}
       </span>
       <span className="text-right shrink-0">
-        <span className={`block text-[19px] font-semibold num leading-tight ${cls}`}>{it.close.toFixed(2)}</span>
+        <Tick v={close} className={`block text-[19px] font-semibold num leading-tight px-0.5 ${cls}`}>{close.toFixed(2)}</Tick>
         <span className={`block text-[13px] num ${cls}`}>
           {chg == null ? "-" : `${pct > 0 ? "▲" : pct < 0 ? "▼" : ""}${Math.abs(chg).toFixed(2)}(${Math.abs(pct).toFixed(2)}%)`}
         </span>
@@ -90,6 +95,10 @@ function Screener() {
   const [grouped, setGrouped] = useState(true);
   const [groupOpen, setGroupOpen] = useState(false);
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  // 額外篩選：只看「全球強勢族群」前 N 名對應的台股（直接用現有結果篩，不用重跑選股）
+  const [gTop, setGTop] = useState(0);
+  const [gData, setGData] = useState<GlobalThemes | null>(null);
+  useEffect(() => { if (gTop && !gData) getGlobalThemes().then(setGData).catch(() => {}); }, [gTop, gData]);
   useEffect(() => { getGroups().then(setGroups); }, []);
 
   async function load() {
@@ -156,8 +165,34 @@ function Screener() {
   const shown = resultsFor === sel ? results : [];
   const day = shown[dayIdx];
   const tags = useMemo(() => [...new Set((day?.items ?? []).flatMap((x) => x.tags ?? []))].sort(), [day]);
-  const items = useMemo(() => (day?.items ?? []).filter((x) => !tagFilter || x.tags?.includes(tagFilter)), [day, tagFilter]);
-  const shownGroups = useMemo(() => groupItems(items, groups), [items, groups]);
+  // 全球族群：代號 → 最好的那個族群（名次最前）與在台股清單裡的順序
+  const gMap = useMemo(() => {
+    const m = new Map<string, { rank: number; theme: string; tier: 1 | 2 | 3; order: number; avg: number }>();
+    if (!gTop || !gData) return m;
+    for (const t of gData.themes) {
+      if (t.rank > gTop) continue;
+      t.tw.forEach((r, i) => { if (!m.has(r.code)) m.set(r.code, { rank: t.rank, theme: t.name, tier: r.tier, order: i, avg: t.avg }); });
+    }
+    return m;
+  }, [gTop, gData]);
+  const items = useMemo(() => (day?.items ?? []).filter((x) => (!tagFilter || x.tags?.includes(tagFilter)) && (!gTop || gMap.has(x.code))),
+    [day, tagFilter, gTop, gMap]);
+  const shownGroups = useMemo<Group[]>(() => {
+    if (!gTop) return groupItems(items, groups);
+    // 依全球族群名次分組；組內依關聯度（龍頭 → 高度相關 → 相關、成交金額）
+    const by = new Map<string, Group & { rank: number }>();
+    for (const it of items) {
+      const g = gMap.get(it.code)!;
+      const name = `全球 #${g.rank} ${g.theme}（${g.avg > 0 ? "+" : ""}${g.avg.toFixed(2)}%）`;
+      if (!by.has(name)) by.set(name, { name, custom: false, items: [], rank: g.rank });
+      by.get(name)!.items.push(it);
+    }
+    const out = [...by.values()].sort((a, b) => a.rank - b.rank);
+    out.forEach((g) => g.items.sort((a, b) => gMap.get(a.code)!.order - gMap.get(b.code)!.order));
+    return out;
+  }, [items, groups, gTop, gMap]);
+  const live = useLiveQuotes(useMemo(() => items.slice(0, 150).map((x) => x.code), [items]));
+  const TIER_S = ["", "龍頭", "高度相關", "相關"];
 
   if (editing) {
     return (
@@ -260,6 +295,15 @@ function Screener() {
             <div className="flex items-center gap-2 px-4 py-2.5 flex-wrap">
               <span className="text-[16px]">共 <span className="param num font-semibold">{items.length}</span> 檔</span>
               {day.items.length > 0 && (
+                <select className={`chip !pr-6 ${gTop ? "chip-on" : ""}`} value={gTop} onChange={(e) => setGTop(+e.target.value)}
+                  title="只看全球強勢族群對應的台股（用目前的結果直接篩，不用重跑）">
+                  <option value={0}>全球強勢：不篩</option>
+                  <option value={3}>全球強勢前 3 名</option>
+                  <option value={5}>全球強勢前 5 名</option>
+                  <option value={10}>全球強勢前 10 名</option>
+                </select>
+              )}
+              {day.items.length > 0 && (
                 <div className="seg ml-auto">
                   <button aria-pressed={grouped} onClick={() => setGrouped(true)}>分族群</button>
                   <button aria-pressed={!grouped} onClick={() => setGrouped(false)}>不分組</button>
@@ -280,7 +324,11 @@ function Screener() {
 
           {day && day.items.length === 0 && <div className="px-4 pb-4 text-center text-muted text-sm">這天沒有符合的股票，看下面的「條件漏斗」是哪一條刷掉的</div>}
 
-          {day && grouped && (
+          {gTop > 0 && !gData && <p className="px-4 text-xs text-muted">讀取全球強勢族群…</p>}
+          {gTop > 0 && gData && items.length === 0 && day && day.items.length > 0 && (
+            <p className="px-4 pb-2 text-sm text-muted text-center">這次的結果裡沒有全球前 {gTop} 名族群的股票</p>
+          )}
+          {day && (grouped || gTop > 0) && (
             <div className="space-y-3 px-3">
               {shownGroups.map((g) => (
                 <div key={g.name} className="card overflow-hidden">
@@ -288,15 +336,17 @@ function Screener() {
                     <span>{g.custom ? "★ " : ""}{g.name}</span><span className="ml-auto text-muted font-normal">{g.items.length} 檔</span>
                   </div>
                   <div className="divide">
-                    {g.items.map((it, i) => <ItemRow key={it.code} it={it} leader={i === 0 && g.items.length > 1 && it.mcap != null} />)}
+                    {g.items.map((it, i) => gTop
+                      ? <ItemRow key={it.code} it={it} live={live[it.code]} badge={TIER_S[gMap.get(it.code)?.tier ?? 0]} />
+                      : <ItemRow key={it.code} it={it} live={live[it.code]} leader={i === 0 && g.items.length > 1 && it.mcap != null} />)}
                   </div>
                 </div>
               ))}
             </div>
           )}
-          {day && !grouped && items.length > 0 && (
+          {day && !grouped && !gTop && items.length > 0 && (
             <div className="divide border-y border-line bg-panel">
-              {items.map((it) => <ItemRow key={it.code} it={it} />)}
+              {items.map((it) => <ItemRow key={it.code} it={it} live={live[it.code]} />)}
             </div>
           )}
 

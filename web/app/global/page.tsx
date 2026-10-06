@@ -4,7 +4,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
+import Tick from "@/components/ui/Tick";
 import { getGlobalThemes, type GlobalMarket, type GlobalTheme, type GlobalThemes } from "@/lib/data";
+import { livePx, useLiveQuotes } from "@/lib/useLive";
 
 const MK: Record<GlobalMarket, string> = { US: "美", JP: "日", KR: "韓", CN: "陸", EU: "歐" };
 const MK_FULL: Record<GlobalMarket, string> = { US: "美股", JP: "日股", KR: "韓股", CN: "陸股", EU: "歐股" };
@@ -51,6 +53,8 @@ export default function GlobalPage() {
   }, []);
 
   const t = useMemo(() => data?.themes.find((x) => x.id === sel) ?? null, [data, sel]);
+  // 台股對應清單：盤中即時價（每 5 秒）
+  const live = useLiveQuotes(useMemo(() => t?.tw.map((r) => r.code) ?? [], [t]));
   const synced = data?.themes.filter((x) => x.synced) ?? [];
 
   function pick(id: string) {
@@ -215,7 +219,7 @@ export default function GlobalPage() {
                 <span>層級</span><span>個股</span><span>細項</span><span className="text-right">收盤</span><span className="text-right">漲跌</span><span className="text-right">成交金額</span>
               </div>
               <ul>
-                {tw.map((r) => (
+                {tw.map((r) => { const lp = livePx(live[r.code], r.close, r.pct); return (
                   <li key={r.code} className="border-b border-line last:border-0">
                     <Link href={`/stock/${r.code}`}
                       className="grid grid-cols-[3.6rem_1fr_auto] sm:grid-cols-[4.5rem_1fr_9rem_5rem_5.5rem_5rem] gap-x-2 items-center px-3 py-2 hover:bg-panel-2 transition-colors">
@@ -229,15 +233,15 @@ export default function GlobalPage() {
                         <span className="sm:hidden block text-[11px] text-muted truncate">{r.sub}・{yi(r.amount)}</span>
                       </span>
                       <span className={`hidden sm:block text-[13px] truncate ${r.lead ? "text-accent" : "text-muted"}`}>{r.sub}</span>
-                      <span className="hidden sm:block text-right num text-[14px]">{r.close?.toFixed(2) ?? "—"}</span>
-                      <span className={`text-right num text-[14px] font-semibold ${cls(r.pct)}`}>
-                        <span className="sm:hidden block text-[13px] font-normal text-text">{r.close?.toFixed(2) ?? "—"}</span>
-                        {pct(r.pct)}
+                      <Tick v={lp.px} className="hidden sm:block text-right num text-[14px]">{lp.px?.toFixed(2) ?? "—"}</Tick>
+                      <span className={`text-right num text-[14px] font-semibold ${cls(lp.pct)}`}>
+                        <Tick v={lp.px} className="sm:hidden block text-[13px] font-normal text-text">{lp.px?.toFixed(2) ?? "—"}</Tick>
+                        {pct(lp.pct)}
                       </span>
                       <span className="hidden sm:block text-right num text-[13px] text-muted">{yi(r.amount)}</span>
                     </Link>
                   </li>
-                ))}
+                ); })}
               </ul>
             </section>
 

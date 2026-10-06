@@ -4,6 +4,8 @@ import { memo, useEffect, useMemo, useState } from "react";
 import Icon from "@/components/ui/Icon";
 import { InstallBanner } from "@/components/InstallApp";
 import Spark from "@/components/ui/Spark";
+import Tick from "@/components/ui/Tick";
+import { LIVE_MS } from "@/lib/useLive";
 import { openSearch } from "@/components/SearchPalette";
 import {
   allStocks, getAlerts, getGroups, getJobRuns, getMarketSummary, applyLive, getLiveQuotes, getQuotes, marketOpen, getResults, getStrategies, getWatchlist,
@@ -119,12 +121,12 @@ const WatchRow = memo(function WatchRow({ code, name, q, edit, onRemove }: { cod
           <span className="block font-semibold truncate">{name || code}</span>
           <span className="block text-xs text-muted num">{code}</span>
         </span>
-        <span className="hidden md:block text-right num font-semibold">{q ? q.close.toFixed(2) : "—"}</span>
+        <Tick v={q?.close} className="hidden md:block text-right num font-semibold">{q ? q.close.toFixed(2) : "—"}</Tick>
         <span className={`hidden md:block text-right num ${cls(q?.chg)}`}>{q ? `${sign(q.chg)}${q.chg.toFixed(2)}` : ""}</span>
         <span className="hidden md:block text-right num text-muted">{q ? q.volume.toLocaleString() : ""}</span>
         <span className="justify-self-end"><Spark data={q?.spark ?? []} w={72} h={26} /></span>
         <span className="md:hidden text-right">
-          <span className="block num font-semibold">{q ? q.close.toFixed(2) : "—"}</span>
+          <Tick v={q?.close} className="block num font-semibold">{q ? q.close.toFixed(2) : "—"}</Tick>
           <Pill v={q?.pct} />
         </span>
         <span className="hidden md:block text-right"><Pill v={q?.pct} /></span>
@@ -157,7 +159,7 @@ function Watchlist() {
     if (need.length) getQuotes(need).then((q) => setQuotes((o) => ({ ...o, ...q }))).catch(() => {});
   }, [codes, quotes]);
 
-  // 盤中每 20 秒更新即時價（畫面在背景時不問）
+  // 盤中每 5 秒更新即時價（畫面在背景時不問）
   useEffect(() => {
     if (!codes.length) return;
     const id = setInterval(() => {
@@ -167,7 +169,7 @@ function Watchlist() {
         for (const c of codes) if (n[c] && m[c]) n[c] = applyLive(n[c], m[c]);
         return n;
       })).catch(() => {});
-    }, 20_000);
+    }, LIVE_MS);
     return () => clearInterval(id);
   }, [codes]);
 

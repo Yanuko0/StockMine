@@ -68,5 +68,5 @@ export async function GET(req: Request) {
       if (p && p[1].price != null) out[p[0]] = p[1];
     }
   } catch { /* 拿不到就回空的，網頁會繼續用收盤資料 */ }
-  return Response.json({ quotes: out }, { headers: { "Cache-Control": "public, s-maxage=8, stale-while-revalidate=20" } });
+  return Response.json({ quotes: out }, { headers: { "Cache-Control": "public, s-maxage=3, stale-while-revalidate=10" } });
 }

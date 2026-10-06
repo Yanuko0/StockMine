@@ -2,6 +2,8 @@
 // 電腦版個股頁左側：自選股 / 最近看過 / 自訂族群，點一下切換，↑↓ 鍵上下切換
 import { memo, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import Tick from "@/components/ui/Tick";
+import { LIVE_MS } from "@/lib/useLive";
 import Spark from "@/components/ui/Spark";
 import Icon from "@/components/ui/Icon";
 import {
@@ -31,7 +33,7 @@ const Row = memo(function Row({ code, name, q, on, onPick, mini }: { code: strin
         <span className="block truncate text-xs text-muted">{name}</span>
       </span>
       <span className="text-right">
-        <span className={`block num text-[13px] font-semibold ${c}`}>{q ? q.close.toFixed(2) : "—"}</span>
+        <Tick v={q?.close} className={`block num text-[13px] font-semibold ${c}`}>{q ? q.close.toFixed(2) : "—"}</Tick>
         <span className={`block num text-xs ${c}`}>{q ? `${q.pct > 0 ? "+" : ""}${q.pct.toFixed(2)}%` : ""}</span>
       </span>
       {q && <span className="col-span-2 mt-1 opacity-80"><Spark data={q.spark} w={220} h={14} /></span>}
@@ -74,7 +76,7 @@ export default function WatchlistPane() {
     if (need.length) getQuotes(need).then((q) => setQuotes((o) => ({ ...o, ...q }))).catch(() => {});
   }, [codes, quotes]);
 
-  // 盤中每 20 秒更新即時價（畫面在背景時不問）
+  // 盤中每 5 秒更新即時價（畫面在背景時不問）
   useEffect(() => {
     if (!codes.length) return;
     const id = setInterval(() => {
@@ -84,7 +86,7 @@ export default function WatchlistPane() {
         for (const c of codes) if (n[c] && m[c]) n[c] = applyLive(n[c], m[c]);
         return n;
       })).catch(() => {});
-    }, 20_000);
+    }, LIVE_MS);
     return () => clearInterval(id);
   }, [codes]);
 

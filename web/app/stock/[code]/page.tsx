@@ -126,7 +126,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
     let alive = true;
     const pull = () => getLiveQuotes([code]).then((m) => { if (alive && m[code]) setLive(m[code]); });
     pull();
-    const id = setInterval(() => { if (marketOpen() && !document.hidden) pull(); }, 15_000);
+    const id = setInterval(() => { if (marketOpen() && !document.hidden) pull(); }, 5_000);
     return () => { alive = false; clearInterval(id); };
   }, [code]);
 
