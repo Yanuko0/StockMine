@@ -11,6 +11,7 @@ import { applyTheme, currentTheme, getThemePref, setThemePref, THEME_EVENT, type
 const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/", label: "首頁", icon: "home" },
   { href: "/screener", label: "選股", icon: "filter" },
+  { href: "/global", label: "全球", icon: "globe" },
   { href: "/plan", label: "建倉", icon: "layers" },
   { href: "/settings", label: "我的", icon: "settings" },
 ];

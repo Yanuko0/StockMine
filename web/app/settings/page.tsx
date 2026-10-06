@@ -14,7 +14,7 @@ function b64ToBytes(s: string) {
 
 const JOB_NAMES: Record<string, string> = {
   eod: "日K／法人", minutes: "分鐘K", broker: "分點", screen: "選股", margin: "融資融券", backup: "備份",
-  "backfill-daily": "補日K", "backfill-minutes": "補分鐘K", "screen-now": "立即選股", intraday: "盤中選股",
+  "backfill-daily": "補日K", "backfill-minutes": "補分鐘K", "screen-now": "立即選股", intraday: "盤中選股", global: "全球族群",
 };
 
 export default function Settings() {

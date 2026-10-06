@@ -529,3 +529,18 @@ export interface MarketSummary {
 export function getMarketSummary(): Promise<MarketSummary | null> {
   return getSetting<MarketSummary | null>("market_summary", null);
 }
+
+// ---------------- 全球強勢族群（每天美股收盤後更新一次，只有最新一天） ----------------
+export type GlobalMarket = "US" | "JP" | "KR" | "CN" | "EU";
+export type GlobalMover = { sym: string; name: string; sub: string; market: GlobalMarket; pct: number; pct5: number | null; close: number; vol_ratio: number | null; date: string };
+export type GlobalTw = { code: string; name: string; tier: 1 | 2 | 3; sub: string; lead: boolean; close: number | null; pct: number | null; amount: number };
+export type GlobalTheme = {
+  id: string; name: string; rank: number; avg: number; avg5: number | null; up: number; n: number;
+  markets: Partial<Record<GlobalMarket, { avg: number; n: number }>>; synced: boolean; strong_markets: GlobalMarket[];
+  lead_sub: string | null; subs: { sub: string; avg: number; n: number }[]; reason: string;
+  movers: GlobalMover[]; tw: GlobalTw[]; news?: { sym: string; title: string; link: string; publisher: string }[];
+};
+export type GlobalThemes = { asof: string; dates: Partial<Record<GlobalMarket, string>>; tw_date: string | null; themes: GlobalTheme[]; failed: string[]; bad_codes: string[] };
+export async function getGlobalThemes() {
+  return getSetting<GlobalThemes | null>("global_themes", null);
+}
