@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
+import IntelTabs from "@/components/IntelTabs";
 import Tick from "@/components/ui/Tick";
 import { getGlobalThemes, type GlobalMarket, type GlobalTheme, type GlobalThemes } from "@/lib/data";
 import { livePx, useLiveQuotes } from "@/lib/useLive";
@@ -80,6 +81,7 @@ export default function GlobalPage() {
       {/* 標題 */}
       <header className="flex flex-wrap items-end gap-x-3 gap-y-1">
         <h1 className="text-[22px] lg:text-[26px] font-bold tracking-tight">全球強勢族群</h1>
+        <IntelTabs />
         <div className="text-[12px] text-muted num">
           {(["US", "JP", "KR"] as GlobalMarket[]).filter((m) => data.dates[m]).map((m) => `${MK_FULL[m]} ${md(data.dates[m])}`).join("・")}
           {" "}收盤｜台股對應 {md(data.tw_date)}

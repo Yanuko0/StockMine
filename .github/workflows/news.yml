@@ -1,0 +1,24 @@
+# 台股新聞熱度：每 2 小時抓一次最近的台股 / 產業新聞，統計標的、題材、關鍵字提及次數（只保留 7 天）
+name: 新聞熱度
+
+on:
+  schedule:
+    - cron: "23 */2 * * *"   # 每 2 小時（GitHub 可能延遲，沒關係）
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: pipeline
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy httpx "psycopg[binary]"
+      - run: python -m twstock.cli news

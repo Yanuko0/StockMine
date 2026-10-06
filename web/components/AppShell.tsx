@@ -12,6 +12,7 @@ const NAV: { href: string; label: string; icon: IconName }[] = [
   { href: "/", label: "首頁", icon: "home" },
   { href: "/screener", label: "選股", icon: "filter" },
   { href: "/global", label: "全球", icon: "globe" },
+  { href: "/news", label: "新聞", icon: "news" },
   { href: "/plan", label: "建倉", icon: "layers" },
   { href: "/settings", label: "我的", icon: "settings" },
 ];
@@ -112,7 +113,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <button className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 rounded-full text-[11px] text-muted" onClick={() => openSearch()}>
                 <Icon name="search" className="w-6 h-6" stroke={1.7} />搜尋
               </button>
-              {NAV.slice(2).map((n) => <Tab key={n.href} {...n} on={isOn(n.href)} />)}
+              {NAV.slice(2).filter((n) => n.href !== "/news").map((n) => n.href === "/global"
+                ? <Tab key={n.href} {...n} label="情報" on={isOn("/global") || isOn("/news")} />
+                : <Tab key={n.href} {...n} on={isOn(n.href)} />)}
             </div>
           </nav>
         )}

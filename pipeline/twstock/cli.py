@@ -8,6 +8,7 @@
   margin           融資融券（官方約 21:30 公布）
   backup           資料庫備份到 Google 雲端硬碟
   global           全球強勢族群（美日韓收盤 → 族群 → 對應台股），每天覆蓋
+  news             台股新聞熱度（最近 7 天：標的、產業題材、關鍵字提及次數）
   backfill-daily   用 FinMind 補歷史日K（可加 --inst --margin）
   backfill-minutes 用 Shioaji 補近 N 天 1分K
 """
@@ -24,7 +25,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from . import bars, broker_files, global_themes, company, config, db, fundamentals, summary, gdrive, push, screener, storage, tranche
+from . import bars, broker_files, global_themes, news, company, config, db, fundamentals, summary, gdrive, push, screener, storage, tranche
 from .sources import broker as broker_src
 from .sources import finmind, official
 
@@ -896,6 +897,9 @@ def main(argv: list[str] | None = None) -> int:
         elif a.job == "global":
             with db.connect() as conn:
                 msg = global_themes.update(conn, d)
+        elif a.job == "news":
+            with db.connect() as conn:
+                msg = news.update(conn)
         elif a.job == "backfill-daily":
             start = config.parse_date(a.start) if a.start else d - timedelta(days=int(365.25 * config.DAILY_KEEP_YEARS))
             end = config.parse_date(a.end) if a.end else d

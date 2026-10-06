@@ -613,3 +613,30 @@ export type GlobalThemes = { asof: string; dates: Partial<Record<GlobalMarket, s
 export async function getGlobalThemes() {
   return getSetting<GlobalThemes | null>("global_themes", null);
 }
+
+// ---------------- 新聞熱度（最近 7 天，排程每 2 小時更新） ----------------
+export type NewsCo = { code: string; name: string; n: number };
+export type NewsHeat = { n7: number; n24: number; series: number[]; spike: number | null; sources: number; top_source: string | null; top_share: number | null; kw: string[]; co: NewsCo[] };
+export type NewsStock = NewsHeat & { rank: number; code: string; name: string; industry: string | null; close: number | null; pct5: number | null; mf5: number | null; flags: string[] };
+export type NewsGroup = NewsHeat & { name: string; kind: "題材" | "產業"; codes?: string[] };
+export type NewsKeyword = NewsHeat & { k: string };
+export type NewsStats = {
+  asof: string; days: string[]; total: number; n24: number; with_stock: number; sources: { name: string; n: number }[];
+  stocks: NewsStock[]; groups: NewsGroup[]; keywords: NewsKeyword[]; errors?: string[];
+};
+export type NewsItem = { id: string; ts: string; source: string | null; title: string; summary: string | null; url: string | null; codes: string[]; themes: string[]; keywords: string[] };
+export async function getNewsStats() {
+  return getSetting<NewsStats | null>("news_stats", null);
+}
+/** 新聞列表：可以依個股、題材、關鍵字、一組個股（產業）或標題文字篩選 */
+export async function getNews(f: { code?: string; theme?: string; keyword?: string; codes?: string[]; q?: string; limit?: number } = {}): Promise<NewsItem[]> {
+  let q = sb().from("news").select("id,ts,source,title,summary,url,codes,themes,keywords").order("ts", { ascending: false }).limit(f.limit ?? 60);
+  if (f.code) q = q.contains("codes", [f.code]);
+  if (f.theme) q = q.contains("themes", [f.theme]);
+  if (f.keyword) q = q.contains("keywords", [f.keyword]);
+  if (f.codes?.length) q = q.overlaps("codes", f.codes);
+  if (f.q?.trim()) q = q.ilike("title", `%${f.q.trim().replace(/[%_]/g, "")}%`);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []) as NewsItem[];
+}
