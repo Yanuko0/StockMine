@@ -57,6 +57,20 @@ def fix_names(obj: dict, names: dict[str, str]) -> dict:
     return obj
 
 
+def update_names(trades: pd.DataFrame) -> int:
+    """只更新分點名稱表（例如抓到的不是要的日期，但名稱還是正確的）。回傳新增 / 修正幾個。"""
+    from .sources.broker import good_name
+    if trades is None or trades.empty:
+        return 0
+    names = load_names()
+    fresh = {str(i): str(n).strip() for i, n in zip(trades["broker_id"], trades["broker_name"]) if good_name(str(n).strip())}
+    diff = {k: v for k, v in fresh.items() if names.get(k) != v}
+    if diff:
+        names.update(diff)
+        storage.upload_many({NAMES: json.dumps(names, ensure_ascii=False, sort_keys=True).encode()})
+    return len(diff)
+
+
 def merge(old: dict | None, code: str, d: date, per: pd.DataFrame) -> dict:
     """把今天的分點加進去（同一天重跑會覆蓋），只留最近 KEEP_DAYS 天。"""
     rows = [[str(r.broker_id), str(r.broker_name), int(r.buy), int(r.sell),

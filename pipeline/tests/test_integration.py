@@ -158,6 +158,22 @@ def test_eod_and_screen(monkeypatch):
         assert mf["code"].tolist() == ["2330"] and int(mf["net"][0]) == 3000
         assert db.query_df(conn, "select count(*) as n from public.broker_daily")["n"][0] == 0
 
+        # 排程被延到隔天凌晨：證交所網站上還是 d 這一天 → 照樣抓；已經是別天 → 不抓
+        def fake_fetch(day):
+            def f(code):
+                df = pd.DataFrame([{"broker_id": "1440", "broker_name": "美林", "price": 100.0, "buy": 5000, "sell": 0}])
+                df.attrs["date"] = day
+                return df
+            return f
+        monkeypatch.setattr(cfg, "today_tw", lambda: d + timedelta(days=1))
+        monkeypatch.setattr(bsrc, "fetch_twse_broker", fake_fetch(d))
+        assert "主力買賣超 1 檔" in cli.job_broker(d)
+        monkeypatch.setattr(bsrc, "fetch_twse_broker", fake_fetch(d + timedelta(days=1)))
+        up.clear()
+        monkeypatch.setattr(broker_files.storage, "download", lambda path: b'{"1440": "\u7f8e"}')
+        assert "無法補抓" in cli.job_broker(d)
+        assert json.loads(up["bk/_names.json"])["1440"] == "美林"  # 名稱表還是會修正
+
         # 分批建倉：規則存在資料庫
         rules = {"entries": [{"name": "第一筆", "conditions": [{"kind": "compare", "tf": "D", "left": {"src": "close"}, "op": ">", "right": {"src": "value", "v": 1}}]}]}
         db.execute(conn, "insert into public.tranche_plans (owner, rules) values (%s, %s)", (uid, json.dumps(rules)))

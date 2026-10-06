@@ -67,6 +67,21 @@ def parse_bsr_csv(text: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["broker_id", "broker_name", "price", "buy", "sell"])
 
 
+def page_date(html: str) -> date | None:
+    """查詢結果頁上的「交易日期」（證交所只提供最近一個交易日；收盤前查到的是前一個交易日）。"""
+    m = re.search(r"日期[^0-9]{0,60}(\d{3,4})\s*/\s*(\d{1,2})\s*/\s*(\d{1,2})", html) \
+        or re.search(r"(\d{4})/(\d{2})/(\d{2})", html)
+    if not m:
+        return None
+    y, mo, dd = (int(x) for x in m.groups())
+    if y < 1911:
+        y += 1911  # 民國年
+    try:
+        return date(y, mo, dd)
+    except ValueError:
+        return None
+
+
 def fetch_twse_broker(code: str, max_tries: int = 8) -> pd.DataFrame | None:
     """抓上市股票「當天」分點成交明細。查無資料回傳空表；多次失敗回傳 None。"""
     from bs4 import BeautifulSoup  # 延遲載入：只有抓分點時才需要（融資融券排程沒有安裝這個套件）
@@ -94,9 +109,13 @@ def fetch_twse_broker(code: str, max_tries: int = 8) -> pd.DataFrame | None:
                     a = s2.find(id="HyperLink_DownloadCSV")
                     href = a.get("href") if a and a.get("href") else "bsContent.aspx"
                     csv_bytes = c.get(BSR + href).content
-                    return parse_bsr_csv(decode_csv(csv_bytes))
+                    df = parse_bsr_csv(decode_csv(csv_bytes))
+                    df.attrs["date"] = page_date(r2.text)
+                    return df
                 if "查無資料" in r2.text:
-                    return pd.DataFrame(columns=["broker_id", "broker_name", "price", "buy", "sell"])
+                    df = pd.DataFrame(columns=["broker_id", "broker_name", "price", "buy", "sell"])
+                    df.attrs["date"] = page_date(r2.text)
+                    return df
                 # 驗證碼錯誤 → 重試
             except Exception as e:  # noqa: BLE001
                 print(f"[broker] {code} 第 {attempt + 1} 次失敗：{e}")

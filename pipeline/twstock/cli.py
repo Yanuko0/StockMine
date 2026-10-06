@@ -298,7 +298,16 @@ def job_broker(d: date, extra_codes: list[str] | None = None, pool: bool = True)
 
     use_finmind = config.FINMIND_SPONSOR and config.FINMIND_TOKEN
     if not use_finmind and d != config.today_tw():
-        return "證交所分點只能查當天，無法補抓過去日期"
+        # 證交所只提供「最近一個交易日」：排程被延到隔天開盤前才跑時，網站上的仍是 d 這一天，先查一檔確認日期
+        probe = next((c for c, m in zip(todo["code"], todo["market"]) if m == "TWSE"), None)
+        got = broker_src.fetch_twse_broker(probe) if probe else None
+        site_day = got.attrs.get("date") if got is not None else None
+        if site_day != d:
+            try:
+                broker_files.update_names(got)  # 日期不對，但分點名稱還是可以拿來修正亂碼
+            except Exception:  # noqa: BLE001
+                traceback.print_exc()
+            return f"證交所分點目前是 {site_day or '無法確認日期'} 的資料，不是 {d}，無法補抓過去日期"
 
     skipped = [c for c, m in zip(todo["code"], todo["market"]) if m != "TWSE" and not use_finmind]
     todo = todo[[m == "TWSE" or use_finmind for m in todo["market"]]]

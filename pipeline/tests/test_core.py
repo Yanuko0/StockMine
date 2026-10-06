@@ -210,3 +210,10 @@ def test_session_date_handles_late_github_runs():
     assert cli.session_date(datetime(2026, 10, 5, 2, 0, tzinfo=tw)) == date(2026, 10, 2)
     # 週六凌晨 → 週五
     assert cli.session_date(datetime(2026, 10, 10, 3, 0, tzinfo=tw)) == date(2026, 10, 9)
+
+
+def test_broker_page_date():
+    from twstock.sources.broker import page_date
+    assert page_date('<span>交易日期</span><span id="x">2026/10/05</span>') == date(2026, 10, 5)
+    assert page_date('<td>日期：115/10/05</td>') == date(2026, 10, 5)
+    assert page_date('<p>no date</p>') is None
