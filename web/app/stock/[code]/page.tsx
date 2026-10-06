@@ -20,7 +20,7 @@ import { deductIndex, deduct3low, vpBox } from "@/lib/indicators";
 import { TimeMapper } from "@/lib/timeline";
 import { TOOLS, type DrawKind } from "@/lib/tools";
 import {
-  addDrawing, addWatch, allStocks, applyLiveBars, deleteDrawing, getDaily, getLiveQuotes, liveWindow, marketOpen, type LiveQuote, getDrawings, getInst, getMainForce, getMinute, getSetting, getWatchlist, me,
+  addDrawing, addWatch, allStocks, applyLiveBars, deleteDrawing, getDaily, getLiveQuotes, marketOpen, type LiveQuote, getDrawings, getInst, getMainForce, getMinute, getSetting, getWatchlist, me,
   pushRecent, removeWatch, subscribeDrawings, updateDrawing, type Drawing, type DrawPoint, type Stock,
 } from "@/lib/data";
 
@@ -123,7 +123,6 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
   }, [code]);
 
   useEffect(() => {
-    if (!liveWindow()) return;
     let alive = true;
     const pull = () => getLiveQuotes([code]).then((m) => { if (alive && m[code]) setLive(m[code]); });
     pull();

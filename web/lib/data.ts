@@ -313,8 +313,11 @@ export async function getLiveQuotes(codes: string[]): Promise<Record<string, Liv
     try {
       const r = await fetch(`/api/live?codes=${part.join(",")}`, { signal: AbortSignal.timeout(8000) });
       const js = (await r.json()) as { quotes: Record<string, LiveQuote> };
+      const t = twNow();
       for (const c of part) {
-        const q = js.quotes?.[c] ?? null;
+        let q: LiveQuote | null = js.quotes?.[c] ?? null;
+        // 08:30～09:00 是開盤前試撮，不是成交價，不拿來畫今天的 K 棒
+        if (q && q.date === t.date && t.min < 9 * 60) q = null;
         liveCache.set(c, { ts: now, q });
         if (q) out[c] = q;
       }
@@ -322,11 +325,10 @@ export async function getLiveQuotes(codes: string[]): Promise<Record<string, Liv
   }
   return out;
 }
-/** 台灣時間週一～週五 08:30～23:59：可能有今天的即時 / 收盤資料還沒進資料庫 */
-export function liveWindow(d = new Date()) {
+/** 台灣時間 YYYY-MM-DD 與分鐘數 */
+function twNow(d = new Date()) {
   const tw = new Date(d.getTime() + 8 * 3600 * 1000);
-  const day = tw.getUTCDay(), m = tw.getUTCHours() * 60 + tw.getUTCMinutes();
-  return day >= 1 && day <= 5 && m >= 8 * 60 + 30;
+  return { date: tw.toISOString().slice(0, 10), min: tw.getUTCHours() * 60 + tw.getUTCMinutes() };
 }
 /** 盤中（09:00～13:35）：需要一直更新 */
 export function marketOpen(d = new Date()) {
@@ -379,10 +381,9 @@ export async function getQuotes(codes: string[]): Promise<Record<string, Quote>>
     out[code] = { code, date: last.date, close, prev: pc, chg, pct: pc ? (chg / pc) * 100 : 0,
       volume: Math.round(+last.volume / 1000), spark: a.slice(-20).map((x) => +x.close) };
   }
-  if (liveWindow()) {
-    const live = await getLiveQuotes(Object.keys(out));
-    for (const c of Object.keys(out)) out[c] = applyLive(out[c], live[c]);
-  }
+  // 資料庫的收盤資料還沒進來（盤中、收盤後、排程延遲、週末前一天沒跑到）都用證交所即時 / 收盤價接上
+  const live = await getLiveQuotes(Object.keys(out));
+  for (const c of Object.keys(out)) out[c] = applyLive(out[c], live[c]);
   return out;
 }
 
