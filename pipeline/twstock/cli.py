@@ -61,18 +61,19 @@ def _eod_one(d: date, wait_inst: bool = True) -> tuple[int, int, int, int] | Non
     prices = q.drop(columns=["name", "market"])
     prices = prices[prices["close"].notna()]  # 沒成交的不存
 
-    # 三大法人：官方通常 15:00~16:30 公布，最多等 40 分鐘（補過去的日子只問一次）
+    # 三大法人：官方通常 15:00~16:30 公布（偶爾更晚），最多等 60 分鐘；只公布一邊（上市 / 上櫃）也先存，
+    # 晚上 22:15 融資融券排程、隔天的日K 排程都會再檢查補齊（_fill_institutional）
     inst = pd.DataFrame()
-    for i in range(5 if wait_inst else 1):
+    tries = 7 if wait_inst else 1
+    for i in range(tries):
         a = official.twse_institutional(d)
         b = official.tpex_institutional(d)
+        inst = pd.concat([x for x in (a, b) if not x.empty], ignore_index=True) if not (a.empty and b.empty) else pd.DataFrame()
         if not a.empty and not b.empty:
-            inst = pd.concat([a, b], ignore_index=True)
             break
-        if not wait_inst:
-            break
-        print(f"[eod] 三大法人尚未公布，10 分鐘後重試（{i + 1}/5）")
-        time.sleep(600)
+        if i + 1 < tries:
+            print(f"[eod] 三大法人尚未全部公布（上市 {len(a)}、上櫃 {len(b)}），10 分鐘後重試（{i + 1}/{tries - 1}）")
+            time.sleep(600)
 
     with db.connect() as conn:
         db.upsert(conn, "stocks", stocks, ["code"])
@@ -98,6 +99,36 @@ def _missing_days(d: date, back: int = 10) -> list[date]:
     return out
 
 
+def _fill_institutional(d: date, back: int = 10) -> list[str]:
+    """最近幾個交易日：上市或上櫃的三大法人整天都沒有 → 再抓一次（官方可以查過去日期）。回傳補到的日子。"""
+    with db.connect() as conn:
+        df = db.query_df(conn, """
+            with days as (select distinct date from public.daily_prices where date between %s and %s and code <> 'TAIEX')
+            select d.date,
+                   count(*) filter (where s.market = 'TWSE') as twse,
+                   count(*) filter (where s.market = 'TPEX') as tpex
+            from days d
+            left join public.institutional i on i.date = d.date
+            left join public.stocks s on s.code = i.code
+            group by d.date order by d.date""", (d - timedelta(days=back), d))
+    filled = []
+    for r in df.itertuples():
+        if r.twse and r.tpex:
+            continue
+        try:
+            a = official.twse_institutional(r.date) if not r.twse else pd.DataFrame()
+            b = official.tpex_institutional(r.date) if not r.tpex else pd.DataFrame()
+        except Exception as e:  # noqa: BLE001
+            print(f"[inst] 補 {r.date} 失敗：{e}")
+            continue
+        got = [x for x in (a, b) if not x.empty]
+        if got:
+            with db.connect() as conn:
+                db.upsert(conn, "institutional", pd.concat(got, ignore_index=True), ["code", "date"])
+            filled.append(f"{r.date:%m-%d}")
+    return filled
+
+
 def job_eod(d: date) -> str:
     # 先補漏掉的日子（例如排程被延到隔天凌晨才跑）
     filled = []
@@ -115,6 +146,13 @@ def job_eod(d: date) -> str:
     n1, n2, ntw, ntp = r
     with db.connect() as conn:
         prune_old(conn, d)
+    try:
+        inst_fill = _fill_institutional(d - timedelta(days=1))  # 前幾天的三大法人有缺就補（今天的剛剛已經等過）
+    except Exception as e:  # noqa: BLE001
+        inst_fill = []
+        print(f"[eod] 補三大法人失敗：{e}")
+    if inst_fill:
+        fill_msg += f"；補三大法人 {'、'.join(inst_fill)}"
     _set_output("trading", "true")
     extra = []
     for fn in (company.update_company_info, fundamentals.update_taiex, summary.update, fundamentals.update_dividends,
@@ -753,12 +791,19 @@ def _run_tranche(d: date) -> str:
 def job_margin(d: date, backfill_min: int = 14) -> str:
     """當天的融資融券；有空檔就回補過去缺的日子（證交所 / 櫃買中心可以查過去日期，一天一次查全市場）。"""
     t0 = time.time()
+    try:  # 晚上再檢查一次：下午三大法人公布得晚、日K 排程沒等到的，這時補上
+        inst_fill = _fill_institutional(d)
+    except Exception as e:  # noqa: BLE001
+        inst_fill = []
+        print(f"[margin] 補三大法人失敗：{e}")
     a, b = official.twse_margin(d), official.tpex_margin(d)
     n = 0
     if not (a.empty and b.empty):
         with db.connect() as conn:
             n = db.upsert(conn, "margin", pd.concat([a, b], ignore_index=True), ["code", "date"])
     msg = f"融資融券 {n} 筆" if n else "當天沒有融資融券資料（休市或尚未公布）"
+    if inst_fill:
+        msg = f"補三大法人 {'、'.join(inst_fill)}；" + msg
 
     # 回補：有三大法人資料的交易日（近 CHIPS_KEEP_DAYS 天），融資融券還沒有的日子，由新到舊
     with db.connect() as conn:

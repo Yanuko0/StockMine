@@ -191,6 +191,7 @@ def test_eod_and_screen(monkeypatch):
         monkeypatch.setattr(official, "twse_margin", mk)
         monkeypatch.setattr(official, "tpex_margin", lambda day: pd.DataFrame())
         monkeypatch.setattr(cli, "_more_financials", lambda *a: "")
+        monkeypatch.setattr(cli, "_fill_institutional", lambda *a, **k: [])  # 另外測
         msg = cli.job_margin(d)
         assert "融資融券 1 筆" in msg and "回補 1 天" in msg, msg
         assert db.query_df(conn, "select count(*) as n from public.margin")["n"][0] == 2
@@ -214,3 +215,27 @@ def test_eod_fills_missed_days(monkeypatch):
         db.execute(conn, "delete from public.daily_prices where code = '8888'")
     # 2001/8/23(四) 有資料；8/24(五)、8/27(一)、8/28(二) 沒有；週末不算
     assert miss == [date(2001, 8, 24), date(2001, 8, 27), date(2001, 8, 28)]
+
+
+def test_fill_institutional_backfills_missing_market(monkeypatch):
+    """三大法人只有上市、沒有上櫃（下午公布太晚）→ 晚上補上櫃那一半。"""
+    from twstock import cli, db
+    from twstock.sources import official
+    day = date(2001, 9, 3)
+    with db.connect() as conn:
+        db.execute(conn, """insert into public.stocks (code, name, market) values ('7771','測上市','TWSE'), ('7772','測上櫃','TPEX')
+                            on conflict (code) do nothing""")
+        db.execute(conn, "insert into public.daily_prices (code, date, close) values ('7771', %s, 10), ('7772', %s, 20)", (day, day))
+        db.execute(conn, "insert into public.institutional (code, date, foreign_net, total_net) values ('7771', %s, 1, 1)", (day,))
+    calls = []
+    monkeypatch.setattr(official, "twse_institutional", lambda d: calls.append("twse") or pd.DataFrame())
+    monkeypatch.setattr(official, "tpex_institutional", lambda d: calls.append("tpex") or pd.DataFrame(
+        [{"code": "7772", "date": d, "foreign_net": 5, "trust_net": 0, "dealer_net": 0, "total_net": 5}]))
+    assert cli._fill_institutional(day + timedelta(days=1), back=5) == ["09-03"]
+    assert calls == ["tpex"]  # 上市已經有了，只抓上櫃
+    assert cli._fill_institutional(day + timedelta(days=1), back=5) == []  # 補齊後不再抓
+    with db.connect() as conn:
+        assert db.query_df(conn, "select count(*) as n from public.institutional where date = %s", (day,))["n"][0] == 2
+        for t in ("institutional", "daily_prices"):
+            db.execute(conn, f"delete from public.{t} where code in ('7771','7772')")
+        db.execute(conn, "delete from public.stocks where code in ('7771','7772')")

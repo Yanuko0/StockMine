@@ -35,6 +35,8 @@ export default function BrokerPanel({ code, daily, market }: { code: string; dai
   const [rows, setRows] = useState<BrokerRow[] | null>(null);
   const [pick, setPick] = useState<BrokerRow | null>(null);
   const [hist, setHist] = useState<Awaited<ReturnType<typeof brokerHistory>>>([]);
+  const [todayTW, setToday] = useState("");
+  useEffect(() => { setToday(new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)); }, []);
 
   useEffect(() => { setRows(null); brokerSummary(code, days).then(setRows).catch(() => setRows([])); }, [code, days]);
   useEffect(() => { if (pick) brokerHistory(code, pick.broker_id, 20).then(setHist); }, [code, pick]);
@@ -49,6 +51,10 @@ export default function BrokerPanel({ code, daily, market }: { code: string; dai
   const n = inSpan.length;
   const vol = inSpan.reduce((s, b) => s + b.volume, 0);
   const conc = vol ? ((net / 1000) / vol) * 100 : null;
+  // 分點比 K 線舊：今天的要等收盤後排程；以前漏掉的日子證交所不能補抓
+  const lagDays = span ? daily.map((b) => b.date!).filter((d) => d > span.end_date) : [];
+  const missed = lagDays.filter((d) => d !== todayTW);
+  const waitToday = lagDays.includes(todayTW);
 
   return (
     <div className="p-3 space-y-3">
@@ -70,6 +76,13 @@ export default function BrokerPanel({ code, daily, market }: { code: string; dai
 
       {rows && rows.length > 0 && (
         <>
+          {lagDays.length > 0 && (
+            <p className="text-[12px] leading-relaxed rounded-lg px-2.5 py-1.5 bg-panel-2 text-muted">
+              最新分點是 <b className="text-text">{span!.end_date.slice(5)}</b>。
+              {waitToday && <>今天（{todayTW.slice(5)}）的分點要等收盤後的排程抓完才會出現（約 16:10 起，GitHub 有時會延遲）。</>}
+              {missed.length > 0 && <>{missed.map((d) => d.slice(5)).join("、")} 排程沒抓到，證交所只提供當天的分點，這幾天沒辦法補。</>}
+            </p>
+          )}
           {span && n < days && <p className="text-[11px] text-accent">目前只累積了 {n} 個交易日的分點，{days} 日的數字會隨每天累積越來越完整。</p>}
           <div className="grid grid-cols-4 gap-2 text-center">
             <div className="card p-2"><div className="text-[11px] text-muted">主力買超</div><div className="font-bold up">{lots(topBuy)}</div></div>
