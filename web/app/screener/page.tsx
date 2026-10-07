@@ -98,7 +98,9 @@ function Screener() {
   // 額外篩選：只看「全球強勢族群」前 N 名對應的台股（直接用現有結果篩，不用重跑選股）
   const [gTop, setGTop] = useState(0);
   const [gData, setGData] = useState<GlobalThemes | null>(null);
-  useEffect(() => { if (gTop && !gData) getGlobalThemes().then(setGData).catch(() => {}); }, [gTop, gData]);
+  // 每次打開篩選都重讀一次：拿到的永遠是最新一份全球排名（每天早上更新）
+  const gOn = gTop > 0;
+  useEffect(() => { if (gOn) getGlobalThemes().then(setGData).catch(() => {}); }, [gOn]);
   useEffect(() => { getGroups().then(setGroups); }, []);
 
   async function load() {
@@ -296,7 +298,9 @@ function Screener() {
               <span className="text-[16px]">共 <span className="param num font-semibold">{items.length}</span> 檔</span>
               {day.items.length > 0 && (
                 <div className="order-last w-full sm:w-auto sm:order-none flex items-center gap-1.5" title="只看全球強勢族群對應的台股（用目前的結果直接篩，不用重跑）">
-                  <span className="text-[13px] text-muted whitespace-nowrap">全球強勢</span>
+                  <span className="text-[13px] text-muted whitespace-nowrap">全球強勢
+                    {gTop > 0 && gData?.dates?.US && <span className="text-[11px]">（美股 {gData.dates.US.slice(5).replace("-", "/")}）</span>}
+                  </span>
                   <div className="seg">
                     {[[0, "不篩"], [3, "前3"], [5, "前5"], [10, "前10"]].map(([v, l]) => (
                       <button key={v} aria-pressed={gTop === v} onClick={() => setGTop(v as number)}>{l}</button>
