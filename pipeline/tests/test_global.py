@@ -44,6 +44,16 @@ def test_parse_chart():
     assert gt.parse_chart({"chart": {"result": None}}) is None
 
 
+def test_parse_chart_skips_bar_still_trading():
+    js = _chart([100, 101, 102, 103, 104, 110])
+    t_last = js["chart"]["result"][0]["timestamp"][-1]
+    js["chart"]["result"][0]["meta"]["currentTradingPeriod"] = {"regular": {"start": t_last, "end": t_last + 6 * 3600}}
+    q = gt.parse_chart(js, now=t_last + 3600)          # 盤中：用前一天收盤
+    assert q["close"] == 104
+    q = gt.parse_chart(js, now=t_last + 7 * 3600)      # 收盤後：用今天
+    assert q["close"] == 110
+
+
 def test_name_ok():
     assert gt.name_ok("臻鼎-KY", "臻鼎-KY")
     assert gt.name_ok("矽力*-KY", "矽力*-KY")
@@ -113,3 +123,4 @@ def test_update_writes_setting(monkeypatch):
     t = v["themes"][0]
     assert t["tw"][0]["code"] == "9901" and t["tw"][0]["pct"] == 10.0 and t["tw"][0]["lead"]
     assert v["dates"]["US"] == "2026-10-02" and t["news"][0]["title"] == "t"
+

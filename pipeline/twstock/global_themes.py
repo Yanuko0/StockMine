@@ -36,8 +36,9 @@ def _get(url: str, params: dict | None = None, tries: int = 3):
     raise RuntimeError(f"{url}: {last}")
 
 
-def parse_chart(js) -> dict | None:
-    """Yahoo 日K → 最新收盤、1 日漲跌幅、5 日漲跌幅、日期。"""
+def parse_chart(js, now: float | None = None) -> dict | None:
+    """Yahoo 日K → 最新「已收盤」的收盤價、1 日漲跌幅、5 日漲跌幅、日期。
+    那個市場正在交易時，最後一根是盤中的（還沒收盤），不算：一律用最近一個收完的交易日。"""
     try:
         res = js["chart"]["result"][0]
     except (KeyError, IndexError, TypeError):
@@ -49,6 +50,10 @@ def parse_chart(js) -> dict | None:
     off = (res.get("meta") or {}).get("gmtoffset") or 0
     rows = [(t, c, (vols[i] if i < len(vols) else None)) for i, (t, c) in enumerate(zip(ts, closes))
             if c is not None and not (isinstance(c, float) and math.isnan(c))]
+    reg = ((res.get("meta") or {}).get("currentTradingPeriod") or {}).get("regular") or {}
+    now = time.time() if now is None else now
+    if rows and reg.get("start") and reg.get("end") and reg["start"] <= now < reg["end"] and rows[-1][0] >= reg["start"] - 6 * 3600:
+        rows = rows[:-1]  # 盤中，這根還沒收盤
     if len(rows) < 2:
         return None
     last, prev = rows[-1][1], rows[-2][1]

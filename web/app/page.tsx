@@ -360,7 +360,7 @@ export default function Home() {
 
   return (
     <div className="page space-y-4">
-      <header className="flex items-center gap-3 pt-1" style={{ paddingTop: "max(4px, env(safe-area-inset-top))" }}>
+      <header className="flex items-center gap-3 pt-1">
         <img src="/icon-192.png" alt="" className="w-9 h-9 rounded-xl lg:hidden" />
         <h1 className="text-[22px] font-bold tracking-tight">掘股 <span className="text-muted text-sm font-normal">StockMine</span></h1>
         <span className="ml-auto text-xs text-muted">{latest ? `資料更新 ${latest.run_date}` : ""}</span>

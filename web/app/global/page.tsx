@@ -84,7 +84,7 @@ export default function GlobalPage() {
         <IntelTabs />
         <div className="text-[12px] text-muted num">
           {(["US", "JP", "KR"] as GlobalMarket[]).filter((m) => data.dates[m]).map((m) => `${MK_FULL[m]} ${md(data.dates[m])}`).join("・")}
-          {" "}收盤｜台股對應 {md(data.tw_date)}
+          {" "}收盤｜台股對應 {md(data.tw_date)}｜{new Date(new Date(data.asof).getTime() + 8 * 3600e3).toISOString().slice(5, 16).replace("-", "/").replace("T", " ")} 更新
         </div>
       </header>
 
