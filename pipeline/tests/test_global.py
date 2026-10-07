@@ -54,6 +54,13 @@ def test_parse_chart_skips_bar_still_trading():
     assert q["close"] == 110
 
 
+def test_parse_chart_cutoff_uses_yesterday():
+    js = _chart([100, 101, 102, 103, 104, 110], t0=1790000000)  # 每天一根
+    dates = [gt.datetime.fromtimestamp(t + 32400, tz=gt.timezone.utc).date() for t in js["chart"]["result"][0]["timestamp"]]
+    q = gt.parse_chart(js, cutoff=dates[-2])
+    assert q["close"] == 104 and q["date"] == dates[-2].isoformat()
+
+
 def test_name_ok():
     assert gt.name_ok("臻鼎-KY", "臻鼎-KY")
     assert gt.name_ok("矽力*-KY", "矽力*-KY")
@@ -108,7 +115,7 @@ def test_update_writes_setting(monkeypatch):
     themes = [{"id": "mem", "name": "記憶體", "foreign": [{"sym": "MU", "name": "美光", "sub": "DRAM"}],
                "tw": [{"code": "9901", "name": "測試股", "tier": 1, "sub": "DRAM"}]}]
     monkeypatch.setattr(gt.global_map, "themes", lambda: themes)
-    monkeypatch.setattr(gt, "fetch_quotes", lambda syms: ({"MU": {"pct": 5.0, "pct5": 9.0, "close": 100, "vol_ratio": 2, "date": "2026-10-02"}}, []))
+    monkeypatch.setattr(gt, "fetch_quotes", lambda syms, **k: ({"MU": {"pct": 5.0, "pct5": 9.0, "close": 100, "vol_ratio": 2, "date": "2026-10-02"}}, []))
     monkeypatch.setattr(gt, "fetch_news", lambda sym, n=2: [{"sym": sym, "title": "t", "link": "https://x", "publisher": "p"}])
     with db.connect() as conn:
         db.execute(conn, "insert into public.stocks (code, name, market) values ('9901','測試股','TWSE') on conflict do nothing")

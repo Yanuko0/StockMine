@@ -36,7 +36,7 @@ def _get(url: str, params: dict | None = None, tries: int = 3):
     raise RuntimeError(f"{url}: {last}")
 
 
-def parse_chart(js, now: float | None = None) -> dict | None:
+def parse_chart(js, now: float | None = None, cutoff: date | None = None) -> dict | None:
     """Yahoo 日K → 最新「已收盤」的收盤價、1 日漲跌幅、5 日漲跌幅、日期。
     那個市場正在交易時，最後一根是盤中的（還沒收盤），不算：一律用最近一個收完的交易日。"""
     try:
@@ -50,6 +50,8 @@ def parse_chart(js, now: float | None = None) -> dict | None:
     off = (res.get("meta") or {}).get("gmtoffset") or 0
     rows = [(t, c, (vols[i] if i < len(vols) else None)) for i, (t, c) in enumerate(zip(ts, closes))
             if c is not None and not (isinstance(c, float) and math.isnan(c))]
+    if cutoff is not None:  # 只用「到昨天為止」的收盤（台股開盤前看的是昨晚美股、昨天日韓）
+        rows = [r for r in rows if datetime.fromtimestamp(r[0] + off, tz=timezone.utc).date() <= cutoff]
     reg = ((res.get("meta") or {}).get("currentTradingPeriod") or {}).get("regular") or {}
     now = time.time() if now is None else now
     if rows and reg.get("start") and reg.get("end") and reg["start"] <= now < reg["end"] and rows[-1][0] >= reg["start"] - 6 * 3600:
@@ -70,11 +72,11 @@ def parse_chart(js, now: float | None = None) -> dict | None:
     }
 
 
-def fetch_quotes(syms: list[str], pause: float = 0.25) -> tuple[dict[str, dict], list[str]]:
+def fetch_quotes(syms: list[str], pause: float = 0.25, cutoff: date | None = None) -> tuple[dict[str, dict], list[str]]:
     out, failed = {}, []
     for s in syms:
         try:
-            q = parse_chart(_get(CHART.format(sym=s), {"range": "1mo", "interval": "1d"}))
+            q = parse_chart(_get(CHART.format(sym=s), {"range": "1mo", "interval": "1d"}), cutoff=cutoff)
         except Exception as e:  # noqa: BLE001
             print(f"[global] {s} 失敗：{e}")
             q = None
@@ -218,7 +220,8 @@ def build(themes: list[dict], quotes: dict[str, dict], tw: dict[str, dict]) -> t
 def update(conn, d: date, news_top: int = 5) -> str:
     themes = global_map.themes()
     syms = sorted({f["sym"] for t in themes for f in t["foreign"]})
-    quotes, failed = fetch_quotes(syms)
+    # 台灣時間的「昨天」為止：早上跑 = 昨晚美股收盤 + 昨天日韓收盤；白天重跑也不會混進今天日韓的盤
+    quotes, failed = fetch_quotes(syms, cutoff=d - timedelta(days=1))
     if len(quotes) < len(syms) * 0.5:
         raise RuntimeError(f"海外股價只抓到 {len(quotes)}/{len(syms)} 檔，可能是 Yahoo 暫時擋住，稍後再試")
     codes = sorted({w["code"] for t in themes for w in t["tw"]})
