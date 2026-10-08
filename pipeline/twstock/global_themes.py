@@ -50,6 +50,17 @@ def parse_chart(js, now: float | None = None, cutoff: date | None = None) -> dic
     off = (res.get("meta") or {}).get("gmtoffset") or 0
     rows = [(t, c, (vols[i] if i < len(vols) else None)) for i, (t, c) in enumerate(zip(ts, closes))
             if c is not None and not (isinstance(c, float) and math.isnan(c))]
+    # Yahoo 日K 的最後一根常常「收盤價空白」或還沒出現，最新收盤放在 meta.regularMarketPrice：
+    # 沒用它的話會拿到前一天的漲跌，日期卻顯示成最新（之前美光顯示 -1.73%，實際 +4.06%）
+    meta = res.get("meta") or {}
+    rmp, rmt = meta.get("regularMarketPrice"), meta.get("regularMarketTime")
+    if rmp and rmt:
+        d_rmt = datetime.fromtimestamp(rmt + off, tz=timezone.utc).date()
+        d_last = datetime.fromtimestamp(rows[-1][0] + off, tz=timezone.utc).date() if rows else None
+        if d_last == d_rmt:
+            rows[-1] = (rows[-1][0], float(rmp), rows[-1][2] or meta.get("regularMarketVolume"))
+        elif d_last is None or d_rmt > d_last:
+            rows.append((rmt, float(rmp), meta.get("regularMarketVolume")))
     if cutoff is not None:  # 只用「到昨天為止」的收盤（台股開盤前看的是昨晚美股、昨天日韓）
         rows = [r for r in rows if datetime.fromtimestamp(r[0] + off, tz=timezone.utc).date() <= cutoff]
     reg = ((res.get("meta") or {}).get("currentTradingPeriod") or {}).get("regular") or {}
@@ -238,6 +249,14 @@ def update(conn, d: date, news_top: int = 5) -> str:
     quotes, failed = fetch_quotes(syms, cutoff=d - timedelta(days=1))
     if len(quotes) < len(syms) * 0.5:
         raise RuntimeError(f"海外股價只抓到 {len(quotes)}/{len(syms)} 檔，可能是 Yahoo 暫時擋住，稍後再試")
+    # 同一個市場裡，日期比別人舊的（Yahoo 還沒更新到最新那天）不拿來算，免得混進前一天的漲跌
+    latest: dict[str, str] = {}
+    for sym, q in quotes.items():
+        mk = global_map.market_of(sym)
+        latest[mk] = max(latest.get(mk, ""), q["date"])
+    stale = [sym for sym, q in quotes.items() if q["date"] < latest[global_map.market_of(sym)]]
+    for sym in stale:
+        failed.append(f"{sym}(資料停在 {quotes.pop(sym)['date'][5:]})")
     codes = sorted({w["code"] for t in themes for w in t["tw"]})
     tw = tw_quotes(conn, codes, d)
     res, bad = build(themes, quotes, tw)

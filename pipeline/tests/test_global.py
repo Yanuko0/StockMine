@@ -61,6 +61,21 @@ def test_parse_chart_cutoff_uses_yesterday():
     assert q["close"] == 104 and q["date"] == dates[-2].isoformat()
 
 
+def test_parse_chart_uses_regular_market_price_for_latest_close():
+    js = _chart([100, 101, 102, 103, 104, None], t0=1790000000)
+    r = js["chart"]["result"][0]
+    t_last = r["timestamp"][-1]
+    r["meta"].update({"regularMarketPrice": 108.16, "regularMarketTime": t_last + 60, "regularMarketVolume": 50})
+    q = gt.parse_chart(js, now=t_last + 20 * 3600)
+    assert q["close"] == 108.16 and q["pct"] == round((108.16 / 104 - 1) * 100, 2)
+    assert q["date"] == gt.datetime.fromtimestamp(t_last + 32400, tz=gt.timezone.utc).date().isoformat()
+    # 最後一根有值但跟 meta 不同：以 meta（正式收盤）為準
+    js2 = _chart([100, 101, 102, 103, 104, 105], t0=1790000000)
+    r2 = js2["chart"]["result"][0]
+    r2["meta"].update({"regularMarketPrice": 106, "regularMarketTime": r2["timestamp"][-1] + 60})
+    assert gt.parse_chart(js2, now=r2["timestamp"][-1] + 20 * 3600)["close"] == 106
+
+
 def test_name_ok():
     assert gt.name_ok("臻鼎-KY", "臻鼎-KY")
     assert gt.name_ok("矽力*-KY", "矽力*-KY")
