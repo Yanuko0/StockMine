@@ -186,6 +186,8 @@ def prune_old(conn, d: date) -> None:
     db.execute(conn, "delete from public.institutional where date < %s", (cut,))
     db.execute(conn, "delete from public.margin where date < %s", (cut,))
     db.execute(conn, "delete from public.job_runs where run_date < %s", (d - timedelta(days=90),))
+    # 選股結果（每個策略每天一筆，含逐檔診斷，比較大）：只留最近 30 天
+    db.execute(conn, "delete from public.screen_results where date < %s", (d - timedelta(days=30),))
 
 
 # ------------------------------------------------------------------ minutes

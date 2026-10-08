@@ -439,6 +439,12 @@ export async function deleteTemplate(id: string) {
 export async function deleteStrategy(id: string) {
   must(await sb().from("strategies").delete().eq("id", id));
 }
+/** 刪掉某一天的選股結果（只能刪自己的策略；要先在 Supabase 執行 012_results_delete.sql） */
+export async function deleteResult(strategyId: string, date: string) {
+  const { error, count } = await sb().from("screen_results").delete({ count: "exact" }).eq("strategy_id", strategyId).eq("date", date);
+  if (error) throw error;
+  if (!count) throw new Error("沒有刪掉（請先在 Supabase 執行 012_results_delete.sql）");
+}
 export async function getResults(strategyId: string, limit = 20) {
   return must(await sb().from("screen_results").select("date,items,meta").eq("strategy_id", strategyId)
     .order("date", { ascending: false }).limit(limit)) as {

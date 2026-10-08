@@ -589,3 +589,7 @@ create index if not exists news_keywords on public.news using gin (keywords);
 alter table public.news enable row level security;
 drop policy if exists read_auth on public.news;
 create policy read_auth on public.news for select to authenticated using (true);
+
+drop policy if exists screen_results_delete_own on public.screen_results;
+create policy screen_results_delete_own on public.screen_results for delete to authenticated
+  using (exists (select 1 from public.strategies s where s.id = strategy_id and s.owner = auth.uid()));

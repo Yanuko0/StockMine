@@ -12,7 +12,7 @@ import Tick from "@/components/ui/Tick";
 import Spark from "@/components/ui/Spark";
 import { livePx, useLiveQuotes } from "@/lib/useLive";
 import {
-  deleteStrategy, getGlobalThemes, getQuotes, getGroups, getLive, type GlobalThemes, type LiveQuote, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
+  deleteResult, deleteStrategy, getGlobalThemes, getQuotes, getGroups, getLive, type GlobalThemes, type LiveQuote, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
 } from "@/lib/data";
 
 type Group = { name: string; custom: boolean; items: ScreenItem[] };
@@ -96,6 +96,17 @@ function Screener() {
   useEffect(() => { selRef.current = sel; }, [sel]);
   const [running, setRunning] = useState<{ id: string; since: number } | null>(null);
   const [runMsg, setRunMsg] = useState("");
+  const [editDays, setEditDays] = useState(false);          // 管理日期：可以刪掉某幾天的結果
+  const [sending, setSending] = useState(false);            // 按下去、還在請 GitHub 開始
+  const [runState, setRunState] = useState("");             // GitHub 那邊的狀況（排隊中 / 執行中）
+  const [elapsed, setElapsed] = useState(0);                // 已經等了幾秒
+  useEffect(() => {
+    if (!running) return;
+    const upd = () => setElapsed(Math.max(0, Math.floor((Date.now() - running.since - 30_000) / 1000)));
+    upd();
+    const t = setInterval(upd, 1000);
+    return () => clearInterval(t);
+  }, [running]);
   const [dayIdx, setDayIdx] = useState(0);
   const [uid, setUid] = useState<string | null>(null);
   const [groups, setGroups] = useState<UserGroup[]>([]);
@@ -132,14 +143,28 @@ function Screener() {
     if (selRef.current === id) { setResults(out); setResultsFor(id); }
     return out;
   }
-  useEffect(() => { if (sel) { setDayIdx(0); loadResults(sel).catch(() => {}); } }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setEditDays(false); if (sel) { setDayIdx(0); loadResults(sel).catch(() => {}); } }, [sel]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 立即選股：排程大約 2~4 分鐘跑完，每 10 秒看一次有沒有新結果
   async function runNow(id: string) {
-    setRunMsg("");
-    const r = await triggerScreen(id);
-    if (!r.ok) { setRunMsg(`沒辦法立即選股：${r.error ?? "未知錯誤"}`); return; }
-    setRunning({ id, since: Date.now() - 30_000 }); // 往前抓 30 秒，避免和 GitHub 的時間差
+    if (sending || running) return; // 連按只算一次（再按一次會把 GitHub 上正在跑的取消掉）
+    setRunMsg(""); setRunState(""); setSending(true);
+    try {
+      const r = await triggerScreen(id);
+      if (!r.ok) {
+        const e = r.error ?? "未知錯誤";
+        setRunMsg(/401|403|Bad credentials|Resource not accessible/i.test(e)
+          ? `沒辦法立即選股：GitHub 金鑰（GITHUB_PAT）失效或權限不夠，要到 GitHub 重新產生、更新到 Vercel。（${e.slice(0, 80)}）`
+          : `沒辦法立即選股：${e}`);
+        return;
+      }
+      setRunning({ id, since: Date.now() - 30_000 }); // 往前抓 30 秒，避免和 GitHub 的時間差
+      setRunState("已送出，等 GitHub 開始…");
+    } catch {
+      setRunMsg("沒辦法立即選股：網路連不上，請再按一次。");
+    } finally {
+      setSending(false);
+    }
   }
   useEffect(() => {
     if (!running) return;
@@ -151,6 +176,12 @@ function Screener() {
       if (now !== before) { setRunning(null); setDayIdx(0); return; }
       // 結果還沒變：問 GitHub 這次跑得怎樣，失敗就馬上說
       const run = await screenRunStatus(new Date(running.since).toISOString()).catch(() => null);
+      if (run) setRunState(run.status === "queued" || run.status === "pending" || run.status === "waiting" ? "GitHub 排隊中…" : run.status === "in_progress" ? "GitHub 執行中…" : "");
+      if (run?.status === "completed" && run.conclusion === "cancelled") {
+        setRunning(null);
+        setRunMsg("這次被取消了（通常是又按了一次，或剛好又儲存了策略，GitHub 只保留最新的一次）。請再按一次「立即選股」。");
+        return;
+      }
       if (run?.status === "completed" && run.conclusion !== "success") {
         setRunning(null);
         setRunMsg(`這次選股在 GitHub 執行失敗（${run.conclusion}）。到 GitHub → Actions →「立即選股」點最新一筆看原因：${run.url}`);
@@ -270,12 +301,11 @@ function Screener() {
 
           {/* 時間、立即選股、編輯 */}
           <div className="flex items-center gap-2 px-4 py-2.5 border-b border-line">
-            <button className="btn btn-primary btn-sm" disabled={!!running} onClick={() => runNow(cur.id)}>
-              {running?.id === cur.id ? "選股中…" : "立即選股"}
+            <button className="btn btn-primary btn-sm" disabled={!!running || sending} onClick={() => runNow(cur.id)}>
+              {sending ? "送出中…" : running?.id === cur.id ? "選股中…" : "立即選股"}
             </button>
             <span className="text-xs text-muted min-w-0 truncate">
-              {running?.id === cur.id ? "用最新資料篩選中，約 1~4 分鐘"
-                : running ? `「${list.find((x) => x.id === running.id)?.name ?? ""}」選股中`
+              {running ? `「${list.find((x) => x.id === running.id)?.name ?? ""}」選股中`
                 : cur.conditions.logic === "OR" ? "任一條件成立" : "全部條件成立"}
             </span>
             <span className="ml-auto text-[13px] num text-muted whitespace-nowrap">{stamp}</span>
@@ -286,20 +316,55 @@ function Screener() {
               </>
             )}
           </div>
-          {runMsg && <p className="text-xs up px-4 pt-2">{runMsg}</p>}
-
-          {/* 歷史日期 */}
-          {shown.length > 1 && (
-            <div className="overflow-x-auto no-scrollbar px-4 pt-2.5">
-              <div className="seg">
-                {shown.map((r, i) => (
-                  <button key={r.label ?? r.date} aria-pressed={i === dayIdx} onClick={() => { setDayIdx(i); setTagFilter(null); }}>
-                    {r.label ?? r.date.slice(5)} <span className="text-muted">{r.items.length}</span>
-                  </button>
-                ))}
-              </div>
+          {/* 立即選股的進度 / 錯誤：放大顯示，不會以為按了沒反應 */}
+          {running && (
+            <div className="mx-4 mt-2.5 rounded-xl border border-accent bg-[var(--accent-bg)] px-3 py-2 flex items-center gap-2 text-[13px]">
+              <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-accent border-t-transparent animate-spin shrink-0" />
+              <span className="min-w-0">
+                <b className="text-accent">{runState || "選股中…"}</b>
+                <span className="text-muted num">　已等 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒・通常 1～4 分鐘，結果出來會自動換上</span>
+              </span>
+              <button className="ml-auto text-[12px] text-muted underline shrink-0" onClick={() => { setRunning(null); setRunState(""); }}>不等了</button>
             </div>
           )}
+          {runMsg && (
+            <div className="mx-4 mt-2.5 rounded-xl border border-up bg-up-soft px-3 py-2 flex items-start gap-2 text-[13px]">
+              <span className="up font-semibold shrink-0">！</span>
+              <span className="min-w-0 break-words">{runMsg}</span>
+              <button className="ml-auto text-muted shrink-0" onClick={() => setRunMsg("")} aria-label="關閉"><Icon name="close" className="w-4 h-4" /></button>
+            </div>
+          )}
+
+          {/* 歷史日期 */}
+          {/* 每天的選股結果（每個交易日收盤後一筆，盤中另外一筆）；保留最近 30 天，可以自己刪 */}
+          {shown.length > 0 && (
+            <div className="flex items-center gap-2 px-4 pt-2.5">
+              <div className="overflow-x-auto no-scrollbar min-w-0">
+                <div className="seg">
+                  {shown.map((r, i) => (
+                    <button key={r.label ?? r.date} aria-pressed={i === dayIdx} onClick={() => { if (!editDays) { setDayIdx(i); setTagFilter(null); } }}>
+                      {r.label ?? r.date.slice(5)} <span className="text-muted">{r.items.length}</span>
+                      {editDays && !r.label && cur.owner === uid && (
+                        <span role="button" aria-label="刪除這天" className="ml-1 -mr-1 inline-flex w-5 h-5 items-center justify-center rounded-full bg-up text-white text-[11px] leading-none"
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (!confirm(`刪除 ${r.date} 這天的選股結果？`)) return;
+                            try { await deleteResult(cur.id, r.date); setDayIdx(0); await loadResults(cur.id); }
+                            catch (err) { setRunMsg(`刪除失敗：${(err as Error).message}`); }
+                          }}>✕</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {cur.owner === uid && shown.some((r) => !r.label) && (
+                <button className={`btn btn-sm shrink-0 ${editDays ? "btn-primary" : "btn-ghost"}`} onClick={() => setEditDays(!editDays)}>
+                  {editDays ? "完成" : "管理"}
+                </button>
+              )}
+            </div>
+          )}
+          {editDays && <p className="px-4 pt-1.5 text-[11px] text-muted">按日期旁的 ✕ 刪掉那天的結果。盤中結果會自動被下一次取代，不用刪。系統只保留最近 30 天。</p>}
 
           {shown.length === 0 && !running && <div className="px-4 py-8 text-center text-muted text-sm">還沒有篩選結果。按「立即選股」馬上篩一次，或等每天收盤後的排程。</div>}
 
