@@ -125,7 +125,7 @@ export default function GlobalPage() {
                 <div className="mt-1 flex items-center gap-1.5 pl-[22px]">
                   {x.synced && <span className="hidden lg:inline text-[10px] font-semibold rounded bg-white/90 text-black px-1">同步</span>}
                   <MarketChips t={x} />
-                  <span className="hidden lg:inline ml-auto text-[11px] opacity-75 num">{x.up}/{x.n} 漲</span>
+                  <span className="hidden lg:inline ml-auto text-[11px] opacity-75 num" title="這個族群的海外成分股裡，有幾檔上漲">{x.n} 檔中 {x.up} 檔漲</span>
                 </div>
               </button>
             ))}
@@ -142,7 +142,7 @@ export default function GlobalPage() {
                   <h2 className="text-[20px] lg:text-[22px] font-bold">{t.name}</h2>
                   <span className="text-[22px] font-bold num">{pct(t.avg)}</span>
                   <span className="text-[12px] opacity-80 num">
-                    {t.basis === "ALL" ? "日韓前一天" : "昨晚美股"}・全部海外平均 {pct(t.avg_all ?? t.avg, 1)}・5 日 {pct(t.avg5, 1)}・上漲 {t.up}/{t.n}
+                    {t.basis === "ALL" ? "日韓前一天" : "昨晚美股"}・全部海外平均 {pct(t.avg_all ?? t.avg, 1)}・5 日 {pct(t.avg5, 1)}・海外 {t.n} 檔中 {t.up} 檔上漲
                   </span>
                 </div>
                 <MarketChips t={t} size="md" />
