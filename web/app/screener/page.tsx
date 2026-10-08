@@ -9,9 +9,10 @@ import Diagnose from "@/components/Diagnose";
 import Icon from "@/components/ui/Icon";
 import { condText } from "@/lib/condText";
 import Tick from "@/components/ui/Tick";
+import Spark from "@/components/ui/Spark";
 import { livePx, useLiveQuotes } from "@/lib/useLive";
 import {
-  deleteStrategy, getGlobalThemes, getGroups, getLive, type GlobalThemes, type LiveQuote, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
+  deleteStrategy, getGlobalThemes, getQuotes, getGroups, getLive, type GlobalThemes, type LiveQuote, screenRunStatus, prefetchDaily, triggerScreen, getResults, getStrategies, me, saveStrategy, type ScreenItem, type Strategy, type UserGroup,
 } from "@/lib/data";
 
 type Group = { name: string; custom: boolean; items: ScreenItem[] };
@@ -36,7 +37,7 @@ function fmtCap(v: number | null | undefined) {
   return v >= 10000 ? `${(v / 10000).toFixed(2)}兆` : `${Math.round(v).toLocaleString()}億`;
 }
 
-function ItemRow({ it, leader, live, badge }: { it: ScreenItem; leader?: boolean; live?: LiveQuote; badge?: string }) {
+function ItemRow({ it, leader, live, badge, spark }: { it: ScreenItem; leader?: boolean; live?: LiveQuote; badge?: string; spark?: number[] }) {
   const lp = livePx(live, it.close, it.chg_pct);
   const close = lp.px ?? it.close;
   const pct = lp.pct ?? 0;
@@ -60,6 +61,12 @@ function ItemRow({ it, leader, live, badge }: { it: ScreenItem; leader?: boolean
             {it.tags.map((t) => <span key={t} className="text-[11px] px-1.5 rounded-md border border-accent text-accent whitespace-nowrap">{t}</span>)}
           </span>
         )}
+      </span>
+      {/* 近 20 日走勢（盤中最後一點跟著即時價） */}
+      <span className="shrink-0 w-[64px] sm:w-[88px] flex items-center justify-center" title="近 20 日走勢">
+        {spark && spark.length > 1
+          ? <Spark data={lp.live ? [...spark.slice(0, -1), close] : spark} w={88} h={30} fluid />
+          : <span className="block w-full h-[30px]" />}
       </span>
       <span className="text-right shrink-0">
         <Tick v={close} className={`block text-[19px] font-semibold num leading-tight px-0.5 ${cls}`}>{close.toFixed(2)}</Tick>
@@ -194,6 +201,17 @@ function Screener() {
     return out;
   }, [items, groups, gTop, gMap]);
   const live = useLiveQuotes(useMemo(() => items.slice(0, 150).map((x) => x.code), [items]));
+  // 近 20 日走勢（每檔一條小線）：畫面上的股票才抓，抓過就記住
+  const [sparks, setSparks] = useState<Record<string, number[]>>({});
+  useEffect(() => {
+    const need = items.map((x) => x.code).filter((c) => !(c in sparks)).slice(0, 200);
+    if (!need.length) return;
+    getQuotes(need).then((q) => setSparks((o) => {
+      const n = { ...o };
+      for (const c of need) n[c] = q[c]?.spark ?? [];
+      return n;
+    })).catch(() => {});
+  }, [items, sparks]);
   const TIER_S = ["", "龍頭", "高度相關", "相關"];
 
   if (editing) {
@@ -342,8 +360,8 @@ function Screener() {
                   </div>
                   <div className="divide">
                     {g.items.map((it, i) => gTop
-                      ? <ItemRow key={it.code} it={it} live={live[it.code]} badge={TIER_S[gMap.get(it.code)?.tier ?? 0]} />
-                      : <ItemRow key={it.code} it={it} live={live[it.code]} leader={i === 0 && g.items.length > 1 && it.mcap != null} />)}
+                      ? <ItemRow key={it.code} it={it} live={live[it.code]} spark={sparks[it.code]} badge={TIER_S[gMap.get(it.code)?.tier ?? 0]} />
+                      : <ItemRow key={it.code} it={it} live={live[it.code]} spark={sparks[it.code]} leader={i === 0 && g.items.length > 1 && it.mcap != null} />)}
                   </div>
                 </div>
               ))}
@@ -351,7 +369,7 @@ function Screener() {
           )}
           {day && !grouped && !gTop && items.length > 0 && (
             <div className="divide border-y border-line bg-panel">
-              {items.map((it) => <ItemRow key={it.code} it={it} live={live[it.code]} />)}
+              {items.map((it) => <ItemRow key={it.code} it={it} live={live[it.code]} spark={sparks[it.code]} />)}
             </div>
           )}
 
