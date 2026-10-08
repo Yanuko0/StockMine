@@ -173,14 +173,19 @@ def build(themes: list[dict], quotes: dict[str, dict], tw: dict[str, dict]) -> t
             if ms:
                 markets[mk] = {"avg": _avg(ms), "n": len(ms)}
         strong_mk = [mk for mk, v in markets.items() if v["avg"] is not None and v["avg"] >= STRONG]
-        synced = len(strong_mk) >= 2
+        # 排名看「昨晚美股」：台股開盤前最新的消息是昨晚美股；日韓是昨天白天的盤（台股昨天已經反映過），當作確認
+        us = [m for m in movers if m["market"] == "US"]
+        basis = "US" if us else "ALL"
+        score = markets["US"]["avg"] if us else avg
+        # 資金同步：美股強，而且日 / 韓（或其他市場）也強；沒有美股的族群看兩個市場以上都強
+        synced = ("US" in strong_mk and len(strong_mk) >= 2) if us else len(strong_mk) >= 2
 
         subs: dict[str, list[float]] = {}
-        for m in movers:
+        for m in (us or movers):  # 最強細項也以美股為主
             subs.setdefault(m["sub"], []).append(m["pct"])
         sub_rank = sorted(({"sub": k, "avg": _avg(v), "n": len(v)} for k, v in subs.items()),
                           key=lambda x: x["avg"] if x["avg"] is not None else -999, reverse=True)
-        lead = sub_rank[0]["sub"] if sub_rank and avg is not None and avg > 0 and sub_rank[0]["avg"] > 0 else None
+        lead = sub_rank[0]["sub"] if sub_rank and score is not None and score > 0 and sub_rank[0]["avg"] > 0 else None
 
         rows = []
         for w in t["tw"]:
@@ -197,15 +202,24 @@ def build(themes: list[dict], quotes: dict[str, dict], tw: dict[str, dict]) -> t
         # 最相關的優先：最強細項 → 龍頭 / 高度相關 / 相關 → 成交金額大到小
         rows.sort(key=lambda r: (0 if r["lead"] else 1, r["tier"], -(r["amount"] or 0)))
 
-        top = "、".join(f"{m['name']} {m['pct']:+.1f}%" for m in movers[:3])
-        reason = f"{t['name']}平均 {avg:+.2f}%，上漲 {up}/{len(movers)} 檔；領漲：{top}。"
+        lead_list = sorted(us, key=lambda m: m["pct"], reverse=True) if us else movers
+        top = "、".join(f"{m['name']} {m['pct']:+.1f}%" for m in lead_list[:3])
+        if us:
+            us_up = sum(1 for m in us if m["pct"] > 0)
+            reason = f"昨晚美股{t['name']}平均 {score:+.2f}%，上漲 {us_up}/{len(us)} 檔；領漲：{top}。"
+            asia = [f"{MARKETS[mk]} {markets[mk]['avg']:+.1f}%" for mk in ("JP", "KR", "CN", "EU") if mk in markets]
+            if asia:
+                reason += "其他市場（前一天收盤）：" + "、".join(asia) + "。"
+        else:
+            reason = f"{t['name']}（沒有美股成分股，看前一天收盤）平均 {score:+.2f}%，上漲 {up}/{len(movers)} 檔；領漲：{top}。"
         if lead:
-            lead_names = "、".join([m["name"] for m in movers if m["sub"] == lead][:3])
+            lead_names = "、".join([m["name"] for m in lead_list if m["sub"] == lead][:3])
             reason += f"最強的是「{lead}」（{lead_names}），台股同一段的個股排在最前面。"
         if synced:
             reason += "、".join(f"{MARKETS[mk]} {markets[mk]['avg']:+.1f}%" for mk in strong_mk) + " 同步走強，資金流向一致。"
         out.append({
-            "id": t["id"], "name": t["name"], "avg": avg, "avg5": avg5, "up": up, "n": len(movers),
+            # avg = 排名用的漲幅（有美股看昨晚美股，沒有才看全部）；avg_all = 全部海外成分股平均
+            "id": t["id"], "name": t["name"], "avg": score, "avg_all": avg, "basis": basis, "avg5": avg5, "up": up, "n": len(movers),
             "markets": markets, "synced": synced, "strong_markets": strong_mk,
             "lead_sub": lead, "subs": sub_rank, "reason": reason,
             "movers": [{k: m[k] for k in ("sym", "name", "sub", "market", "pct", "pct5", "close", "vol_ratio", "date")} for m in movers],

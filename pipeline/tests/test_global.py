@@ -68,6 +68,22 @@ def test_name_ok():
     assert not gt.name_ok("南亞科", "台積電")
 
 
+def test_rank_by_last_night_us():
+    themes = [
+        {"id": "a", "name": "A", "foreign": [{"sym": "AA", "name": "AA", "sub": "x"}, {"sym": "1.T", "name": "J1", "sub": "x"}], "tw": []},
+        {"id": "b", "name": "B", "foreign": [{"sym": "BB", "name": "BB", "sub": "x"}, {"sym": "2.T", "name": "J2", "sub": "x"}], "tw": []},
+        {"id": "c", "name": "C", "foreign": [{"sym": "3.KS", "name": "K3", "sub": "x"}], "tw": []},
+    ]
+    q = lambda p: {"pct": p, "pct5": p, "close": 1, "vol_ratio": 1, "date": "2026-10-07"}  # noqa: E731
+    # A：美股 +1、日股 +9（全部平均 +5）；B：美股 +4、日股 -2（平均 +1）→ 依昨晚美股，B 排在 A 前面
+    res, _ = gt.build(themes, {"AA": q(1), "1.T": q(9), "BB": q(4), "2.T": q(-2), "3.KS": q(2)}, {})
+    assert [x["id"] for x in res] == ["b", "c", "a"]
+    b = res[0]
+    assert b["avg"] == 4 and b["avg_all"] == 1 and b["basis"] == "US" and "昨晚美股" in b["reason"]
+    assert not b["synced"]                       # 只有美股強，日股沒跟上
+    assert res[1]["basis"] == "ALL" and res[1]["avg"] == 2
+
+
 def test_related_subs():
     assert gt.related("雷射/磷化銦", "磷化銦基板")
     assert gt.related("NAND/SSD", "NAND控制IC")

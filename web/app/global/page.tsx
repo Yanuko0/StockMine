@@ -107,7 +107,7 @@ export default function GlobalPage() {
       <div className="lg:flex lg:gap-3 lg:items-start space-y-3 lg:space-y-0">
         {/* 族群排行（熱力圖） */}
         <section className="lg:w-[360px] lg:shrink-0 lg:sticky lg:top-3">
-          <div className="section-title mb-1.5 px-0.5">族群排行・依海外平均漲幅</div>
+          <div className="section-title mb-1.5 px-0.5">族群排行・依昨晚美股平均漲幅（日韓是前一天收盤，當作確認）</div>
           <div className="grid grid-cols-2 lg:grid-cols-1 gap-1.5">
             {data.themes.map((x) => (
               <button key={x.id} onClick={() => pick(x.id)} style={heat(x.avg)}
@@ -115,6 +115,7 @@ export default function GlobalPage() {
                 <div className="flex items-baseline gap-1.5">
                   <span className="text-[11px] num opacity-70 w-4 shrink-0">{x.rank}</span>
                   <span className="font-semibold text-[14px] lg:text-[15px] leading-snug min-w-0 lg:truncate">{x.name}</span>
+                  {x.basis === "ALL" && <span className="shrink-0 text-[10px] rounded px-1 bg-black/25 opacity-80" title="沒有美股成分股，用日韓前一天收盤排名">無美股</span>}
                   <span className="hidden lg:inline ml-auto text-[16px] font-bold num">{pct(x.avg)}</span>
                 </div>
                 <div className="lg:hidden flex items-center gap-1.5 pl-[22px] mt-0.5">
@@ -140,7 +141,9 @@ export default function GlobalPage() {
                   <span className="text-[12px] num opacity-75">第 {t.rank} 名</span>
                   <h2 className="text-[20px] lg:text-[22px] font-bold">{t.name}</h2>
                   <span className="text-[22px] font-bold num">{pct(t.avg)}</span>
-                  <span className="text-[12px] opacity-80 num">5 日 {pct(t.avg5, 1)}・上漲 {t.up}/{t.n}</span>
+                  <span className="text-[12px] opacity-80 num">
+                    {t.basis === "ALL" ? "日韓前一天" : "昨晚美股"}・全部海外平均 {pct(t.avg_all ?? t.avg, 1)}・5 日 {pct(t.avg5, 1)}・上漲 {t.up}/{t.n}
+                  </span>
                 </div>
                 <MarketChips t={t} size="md" />
                 <p className="text-[14px] leading-relaxed">{t.reason}</p>

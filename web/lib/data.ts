@@ -604,7 +604,7 @@ export type GlobalMarket = "US" | "JP" | "KR" | "CN" | "EU";
 export type GlobalMover = { sym: string; name: string; sub: string; market: GlobalMarket; pct: number; pct5: number | null; close: number; vol_ratio: number | null; date: string };
 export type GlobalTw = { code: string; name: string; tier: 1 | 2 | 3; sub: string; lead: boolean; close: number | null; pct: number | null; amount: number };
 export type GlobalTheme = {
-  id: string; name: string; rank: number; avg: number; avg5: number | null; up: number; n: number;
+  id: string; name: string; rank: number; avg: number; avg_all?: number; basis?: "US" | "ALL"; avg5: number | null; up: number; n: number;
   markets: Partial<Record<GlobalMarket, { avg: number; n: number }>>; synced: boolean; strong_markets: GlobalMarket[];
   lead_sub: string | null; subs: { sub: string; avg: number; n: number }[]; reason: string;
   movers: GlobalMover[]; tw: GlobalTw[]; news?: { sym: string; title: string; link: string; publisher: string }[];
