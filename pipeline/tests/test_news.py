@@ -122,3 +122,15 @@ def test_update_stores_and_prunes(monkeypatch):
         assert v["total"] == 1 and v["stocks"][0]["code"] == "2330" and v["errors"] == ["Google：timeout"]
         db.execute(conn, "delete from public.news")
         db.execute(conn, "delete from public.app_settings where key = 'news_stats'")
+
+
+def test_compute_survives_missing_close():
+    """有一天沒成交（收盤是空的）不能讓整個排程失敗。"""
+    now = datetime(2026, 10, 6, 12, tzinfo=timezone.utc)
+    df = pd.DataFrame([{"id": "a", "ts": now - timedelta(hours=1), "source": "s", "codes": ["2330"], "themes": [], "keywords": []}])
+    df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    prices = pd.DataFrame([{"code": "2330", "date": date(2026, 9, 28) + timedelta(days=i), "close": (None if i == 1 else 100 + i)} for i in range(8)])
+    s = nw.compute(df, STOCKS, prices, pd.DataFrame(), now)
+    json.dumps(nw._finite(s), ensure_ascii=False, allow_nan=False, default=str)
+    assert s["stocks"][0]["close"] == 107
+    assert nw._finite({"a": float("nan"), "b": [float("inf"), 1.0]}) == {"a": None, "b": [None, 1.0]}

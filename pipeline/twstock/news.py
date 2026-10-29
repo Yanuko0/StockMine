@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+import math
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -274,6 +275,17 @@ def tag_items(items: list[dict], tagger: Tagger) -> pd.DataFrame:
 
 
 # ------------------------------------------------------------------ 統計
+def _finite(o):
+    """存進資料庫前把 NaN / 無限大換成 None（JSON 不接受 NaN，之前因為某檔沒成交的收盤是空值，整個排程失敗）。"""
+    if isinstance(o, float):
+        return o if math.isfinite(o) else None
+    if isinstance(o, dict):
+        return {k: _finite(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_finite(v) for v in o]
+    return o
+
+
 def _days(now: datetime) -> list[str]:
     d0 = now.astimezone(TW).date()
     return [(d0 - timedelta(days=i)).isoformat() for i in range(KEEP_DAYS - 1, -1, -1)]
@@ -327,7 +339,9 @@ def compute(news: pd.DataFrame, stocks: pd.DataFrame, prices: pd.DataFrame, mf: 
     pct5, close = {}, {}
     if not prices.empty:
         for code, g in prices.sort_values("date").groupby("code"):
-            c = g["close"].astype(float).tolist()
+            c = [x for x in pd.to_numeric(g["close"], errors="coerce").tolist() if x == x and x is not None]  # 沒成交的日子收盤是空的，跳過
+            if not c:
+                continue
             close[code] = c[-1]
             if len(c) >= 6 and c[-6]:
                 pct5[code] = round((c[-1] / c[-6] - 1) * 100, 2)
@@ -425,7 +439,7 @@ def update(conn, now: datetime | None = None) -> str:
     stats["errors"] = errors[:10]
     db.execute(conn, """insert into public.app_settings (key, value) values ('news_stats', %s::jsonb)
                         on conflict (key) do update set value = excluded.value""",
-               (json.dumps(stats, ensure_ascii=False, allow_nan=False, default=str),))
+               (json.dumps(_finite(stats), ensure_ascii=False, allow_nan=False, default=str),))
     top = "、".join(f"{s['name']}({s['n7']})" for s in stats["stocks"][:3])
     msg = f"新增 {n} 則、7 日共 {stats['total']} 則；最熱：{top or '無'}"
     if errors:
