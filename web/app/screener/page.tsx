@@ -79,6 +79,18 @@ function ItemRow({ it, leader, live, badge, spark }: { it: ScreenItem; leader?: 
   );
 }
 
+/** GitHub 執行步驟 → 看得懂的中文 */
+function stepLabel(name: string) {
+  if (/set up job/i.test(name)) return "準備機器中…";
+  if (/checkout/i.test(name)) return "下載程式中…";
+  if (/setup-python|pip install/i.test(name)) return "安裝套件中…";
+  if (/日期|還原/.test(name)) return "讀取今天的資料快取…";
+  if (/screen-now|twstock\.cli/.test(name)) return "抓最新股價、篩選中…";
+  if (/存/.test(name)) return "存結果中…";
+  if (/^post|complete job/i.test(name)) return "收尾中，馬上好…";
+  return "執行中…";
+}
+
 /** 條件文字裡的數字用黃色標出來（三竹的樣子） */
 function HL({ text }: { text: string }) {
   const parts = text.split(/(\d[\d,.]*)/);
@@ -99,6 +111,7 @@ function Screener() {
   const [editDays, setEditDays] = useState(false);          // 管理日期：可以刪掉某幾天的結果
   const [sending, setSending] = useState(false);            // 按下去、還在請 GitHub 開始
   const [runState, setRunState] = useState("");             // GitHub 那邊的狀況（排隊中 / 執行中）
+  const [prog, setProg] = useState<{ done: number; total: number; typical: number | null } | null>(null); // 跑到第幾步、通常要多久
   const [elapsed, setElapsed] = useState(0);                // 已經等了幾秒
   useEffect(() => {
     if (!running) return;
@@ -176,7 +189,13 @@ function Screener() {
       if (now !== before) { setRunning(null); setDayIdx(0); return; }
       // 結果還沒變：問 GitHub 這次跑得怎樣，失敗就馬上說
       const run = await screenRunStatus(new Date(running.since).toISOString()).catch(() => null);
-      if (run) setRunState(run.status === "queued" || run.status === "pending" || run.status === "waiting" ? "GitHub 排隊中…" : run.status === "in_progress" ? "GitHub 執行中…" : "");
+      if (run) {
+        const steps = run.steps ?? [];
+        const cur = steps.find((x) => x.status === "in_progress");
+        setRunState(run.status === "queued" || run.status === "pending" || run.status === "waiting" ? "GitHub 排隊中，還沒開始…"
+          : cur ? stepLabel(cur.name) : run.status === "in_progress" ? "GitHub 執行中…" : "");
+        setProg({ done: steps.filter((x) => x.status === "completed").length, total: steps.length, typical: run.typical ?? null });
+      }
       if (run?.status === "completed" && run.conclusion === "cancelled") {
         setRunning(null);
         setRunMsg("這次被取消了（通常是又按了一次，或剛好又儲存了策略，GitHub 只保留最新的一次）。請再按一次「立即選股」。");
@@ -197,9 +216,24 @@ function Screener() {
         setRunMsg(run ? `還在 GitHub 排隊或執行中（${run.status}），晚點重新整理就會看到結果。` : "等太久了，結果還沒出來。可以到 GitHub → Actions →「立即選股」看執行狀況。");
         setDayIdx(0);
       }
-    }, 10000);
+    }, 6000);
     return () => clearInterval(t);
   }, [running]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 立即選股進行中離開頁面 / 重新整理：回來時繼續等，不會不知道結果什麼時候出來
+  useEffect(() => {
+    try {
+      if (running) localStorage.setItem("screenRunning", JSON.stringify(running));
+      else localStorage.removeItem("screenRunning");
+    } catch { /* 沒有 localStorage 也沒關係 */ }
+    if (!running) setProg(null);
+  }, [running]);
+  useEffect(() => {
+    try {
+      const r = JSON.parse(localStorage.getItem("screenRunning") ?? "null") as { id: string; since: number } | null;
+      if (r && Date.now() - r.since < 15 * 60e3) { setRunning(r); setRunState("繼續等上次的立即選股…"); }
+    } catch { /* */ }
+  }, []);
 
   const cur = list.find((s) => s.id === sel);
   const shown = resultsFor === sel ? results : [];
@@ -320,9 +354,20 @@ function Screener() {
           {running && (
             <div className="mx-4 mt-2.5 rounded-xl border border-accent bg-[var(--accent-bg)] px-3 py-2 flex items-center gap-2 text-[13px]">
               <span className="inline-block w-3.5 h-3.5 rounded-full border-2 border-accent border-t-transparent animate-spin shrink-0" />
-              <span className="min-w-0">
-                <b className="text-accent">{runState || "選股中…"}</b>
-                <span className="text-muted num">　已等 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒・通常 1～4 分鐘，結果出來會自動換上</span>
+              <span className="min-w-0 flex-1">
+                <span className="flex flex-wrap items-baseline gap-x-2">
+                  <b className="text-accent">{runState || "選股中…"}</b>
+                  <span className="text-muted num text-[12px]">
+                    已等 {Math.floor(elapsed / 60)} 分 {elapsed % 60} 秒
+                    {prog?.typical ? `・最近幾次大約 ${Math.max(1, Math.round(prog.typical / 60))} 分鐘${elapsed < prog.typical ? `，預計還要 ${Math.max(1, Math.round((prog.typical - elapsed) / 60))} 分鐘` : "，應該快好了"}` : "・通常 1～4 分鐘"}
+                  </span>
+                </span>
+                {prog && prog.total > 0 && (
+                  <span className="block h-1.5 rounded-full bg-panel-2 mt-1.5 overflow-hidden">
+                    <span className="block h-full rounded-full bg-accent transition-all duration-700" style={{ width: `${Math.max(4, (prog.done / prog.total) * 100)}%` }} />
+                  </span>
+                )}
+                <span className="block text-[11px] text-muted mt-1">結果出來會自動換上，離開這頁再回來也會繼續等</span>
               </span>
               <button className="ml-auto text-[12px] text-muted underline shrink-0" onClick={() => { setRunning(null); setRunState(""); }}>不等了</button>
             </div>

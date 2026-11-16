@@ -41,12 +41,29 @@ export async function GET(req: Request) {
   const repo = process.env.GITHUB_REPO;
   if (!pat || !repo) return Response.json({ ok: false });
   const since = new URL(req.url).searchParams.get("since") ?? "";
-  const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/screen-now.yml/runs?per_page=5&event=workflow_dispatch`, {
-    headers: { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
-    cache: "no-store",
+  const gh = { Authorization: `Bearer ${pat}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
+  const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/screen-now.yml/runs?per_page=15&event=workflow_dispatch`, {
+    headers: gh, cache: "no-store",
   });
   if (!r.ok) return Response.json({ ok: false, status: r.status });
-  const j = (await r.json()) as { workflow_runs?: { status: string; conclusion: string | null; html_url: string; created_at: string }[] };
-  const run = (j.workflow_runs ?? []).find((x) => !since || x.created_at >= since.slice(0, 19));
-  return Response.json({ ok: true, run: run ? { status: run.status, conclusion: run.conclusion, url: run.html_url } : null });
+  type Run = { id: number; status: string; conclusion: string | null; html_url: string; created_at: string; run_started_at?: string; updated_at: string };
+  const runs = ((await r.json()) as { workflow_runs?: Run[] }).workflow_runs ?? [];
+  const run = runs.find((x) => !since || x.created_at >= since.slice(0, 19));
+  // 最近幾次成功的大約花多久（從按下去到跑完）：給網頁顯示「預計還要多久」
+  const durs = runs.filter((x) => x.conclusion === "success")
+    .map((x) => (Date.parse(x.updated_at) - Date.parse(x.created_at)) / 1000).filter((v) => v > 0 && v < 3600).sort((a, b) => a - b);
+  const typical = durs.length ? Math.round(durs[Math.floor(durs.length / 2)]) : null;
+  // 目前跑到第幾步（GitHub 的每個步驟）
+  let steps: { name: string; status: string; conclusion: string | null }[] = [];
+  if (run && run.status !== "completed") {
+    const jr = await fetch(`https://api.github.com/repos/${repo}/actions/runs/${run.id}/jobs`, { headers: gh, cache: "no-store" }).catch(() => null);
+    if (jr?.ok) {
+      const jj = (await jr.json()) as { jobs?: { steps?: { name: string; status: string; conclusion: string | null }[] }[] };
+      steps = (jj.jobs?.[0]?.steps ?? []).map((x) => ({ name: x.name, status: x.status, conclusion: x.conclusion }));
+    }
+  }
+  return Response.json({
+    ok: true, typical,
+    run: run ? { status: run.status, conclusion: run.conclusion, url: run.html_url, created_at: run.created_at, steps } : null,
+  });
 }

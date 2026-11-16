@@ -470,13 +470,15 @@ export async function triggerScreen(strategy: string): Promise<{ ok: boolean; er
   return r.json().catch(() => ({ ok: false, error: `HTTP ${r.status}` }));
 }
 /** 「立即選股」在 GitHub 的執行狀況（since = 按下按鈕的時間） */
-export async function screenRunStatus(since: string): Promise<{ status: string; conclusion: string | null; url: string } | null> {
+export type RunStep = { name: string; status: string; conclusion: string | null };
+export type ScreenRun = { status: string; conclusion: string | null; url: string; created_at?: string; steps?: RunStep[]; typical?: number | null };
+export async function screenRunStatus(since: string): Promise<ScreenRun | null> {
   const { data } = await sb().auth.getSession();
   const r = await fetch(`/api/screen-now?since=${encodeURIComponent(since)}`, {
     headers: { Authorization: `Bearer ${data.session?.access_token}` }, cache: "no-store",
   });
-  const j = await r.json().catch(() => null) as { ok: boolean; run?: { status: string; conclusion: string | null; url: string } | null } | null;
-  return j?.ok ? j.run ?? null : null;
+  const j = await r.json().catch(() => null) as { ok: boolean; typical?: number | null; run?: ScreenRun | null } | null;
+  return j?.ok && j.run ? { ...j.run, typical: j.typical ?? null } : null;
 }
 /** 今天最新一次的盤中選股結果 */
 export async function getLive(strategy: string) {
