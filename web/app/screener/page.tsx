@@ -108,6 +108,8 @@ function Screener() {
   useEffect(() => { selRef.current = sel; }, [sel]);
   const [running, setRunning] = useState<{ id: string; since: number } | null>(null);
   const [runMsg, setRunMsg] = useState("");
+  const [doneMsg, setDoneMsg] = useState("");               // 跑完了：告訴使用者更新了（結果一樣時也看得出來有跑）
+  useEffect(() => { if (!doneMsg) return; const t = setTimeout(() => setDoneMsg(""), 20000); return () => clearTimeout(t); }, [doneMsg]);
   const [editDays, setEditDays] = useState(false);          // 管理日期：可以刪掉某幾天的結果
   const [sending, setSending] = useState(false);            // 按下去、還在請 GitHub 開始
   const [runState, setRunState] = useState("");             // GitHub 那邊的狀況（排隊中 / 執行中）
@@ -149,7 +151,7 @@ function Screener() {
       const tw = new Date(t.getTime() + 8 * 3600e3);
       const liveDay = tw.toISOString().slice(0, 10);
       if (!daily[0] || daily[0].date < liveDay) {
-        out.unshift({ date: liveDay, items: live.items, meta: live.meta, label: `盤中 ${tw.toISOString().slice(11, 16)}` });
+        out.unshift({ date: liveDay, items: live.items, meta: live.meta, label: tw.toISOString().slice(11, 16) >= "13:30" ? `今日收盤 ${tw.toISOString().slice(11, 16)}` : `盤中 ${tw.toISOString().slice(11, 16)}` });
       }
     }
     // 切換策略很快時，舊策略的結果可能比較晚回來：不是目前選的就不要顯示
@@ -161,7 +163,7 @@ function Screener() {
   // 立即選股：排程大約 2~4 分鐘跑完，每 10 秒看一次有沒有新結果
   async function runNow(id: string) {
     if (sending || running) return; // 連按只算一次（再按一次會把 GitHub 上正在跑的取消掉）
-    setRunMsg(""); setRunState(""); setSending(true);
+    setRunMsg(""); setRunState(""); setDoneMsg(""); setSending(true);
     try {
       const r = await triggerScreen(id);
       if (!r.ok) {
@@ -181,12 +183,22 @@ function Screener() {
   }
   useEffect(() => {
     if (!running) return;
+    const prevTop = results[0];
+    const finish = (out: typeof results | null, same = false) => {
+      setRunning(null); setDayIdx(0);
+      const top = out?.[0];
+      const t = new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16);
+      if (!top) { setDoneMsg(`${t} 選股完成。`); return; }
+      const label = top.label ?? top.date.slice(5).replace("-", "/");
+      const sameList = !!prevTop && prevTop.items.map((x) => x.code).join() === top.items.map((x) => x.code).join();
+      setDoneMsg(`${t} 選股完成：${label} 共 ${top.items.length} 檔${same || sameList ? "，跟上一次選出的股票一樣（價格已更新）" : ""}。`);
+    };
     const before = JSON.stringify(results.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total, x.meta?.run_at]));
     const t = setInterval(async () => {
       const out = await loadResults(running.id).catch(() => null);
       if (!out) return;
       const now = JSON.stringify(out.slice(0, 1).map((x) => [x.label ?? x.date, x.items.length, x.meta?.total, x.meta?.run_at]));
-      if (now !== before) { setRunning(null); setDayIdx(0); return; }
+      if (now !== before) { finish(out); return; }
       // 結果還沒變：問 GitHub 這次跑得怎樣，失敗就馬上說
       const run = await screenRunStatus(new Date(running.since).toISOString()).catch(() => null);
       if (run) {
@@ -207,8 +219,7 @@ function Screener() {
         return;
       }
       if (run?.status === "completed" && run.conclusion === "success") {
-        await loadResults(running.id).catch(() => null);
-        setRunning(null); setDayIdx(0);
+        finish(await loadResults(running.id).catch(() => null), true);
         return;
       }
       if (Date.now() - running.since > 12 * 60e3) {
@@ -370,6 +381,13 @@ function Screener() {
                 <span className="block text-[11px] text-muted mt-1">結果出來會自動換上，離開這頁再回來也會繼續等</span>
               </span>
               <button className="ml-auto text-[12px] text-muted underline shrink-0" onClick={() => { setRunning(null); setRunState(""); }}>不等了</button>
+            </div>
+          )}
+          {doneMsg && !running && (
+            <div className="mx-4 mt-2.5 rounded-xl border border-down bg-down-soft px-3 py-2 flex items-start gap-2 text-[13px]">
+              <span className="down font-semibold shrink-0">✓</span>
+              <span className="min-w-0 break-words">{doneMsg}</span>
+              <button className="ml-auto text-muted shrink-0" onClick={() => setDoneMsg("")} aria-label="關閉"><Icon name="close" className="w-4 h-4" /></button>
             </div>
           )}
           {runMsg && (

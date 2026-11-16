@@ -691,13 +691,14 @@ def extend_with_snapshot(m1: pd.DataFrame, snap_row, now: datetime) -> pd.DataFr
     return pd.concat([m1, bar], ignore_index=True)
 
 
-def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False) -> dict:
+def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False, reuse_age: int | None = None) -> dict:
     """用永豐 Shioaji 抓盤中資料：全市場快照（今天的日K）＋（需要時）今天的 1分K。
     reuse=True：40 分鐘內盤中排程抓過今天的 1分K 就沿用，只用快照補最新價格（快很多，不用逐檔抓）。"""
     if not (config.SHIOAJI_API_KEY and config.SHIOAJI_SECRET_KEY):
         raise Skip("尚未設定永豐金鑰（SHIOAJI_API_KEY），無法盤中選股")
     from .sources.shioaji_src import ShioajiClient
-    cached = load_live_m1(d) if (need_minutes and reuse) else None
+    # 收盤後：今天盤中抓過的分K 都可以沿用（只差最後幾分鐘，用收盤快照補上），不用重抓全市場
+    cached = (load_live_m1(d, reuse_age) if reuse_age else load_live_m1(d)) if (need_minutes and reuse) else None
     sj = ShioajiClient()
     try:
         snap = sj.snapshots(codes)
@@ -737,7 +738,7 @@ def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False
     return {"ts": now, "today": today, "m1": m1, "usage": usage, "approx_since": approx_since}
 
 
-def job_live(d: date, only: list[str] | None = None, reuse: bool = False) -> str:
+def job_live(d: date, only: list[str] | None = None, reuse: bool = False, reuse_age: int | None = None) -> str:
     """盤中選股（每 30 分鐘）：用盤中價格跑全部（或指定的）策略，結果存 screen_live。"""
     with db.connect() as conn:
         strategies = db.query_df(conn, "select conditions from public.strategies"
@@ -748,7 +749,7 @@ def job_live(d: date, only: list[str] | None = None, reuse: bool = False) -> str
     if strategies.empty:
         return "沒有任何策略"
     need_min = bool(screener.needed_timeframes(strategies["conditions"].tolist()) & MINUTE_TFS)
-    live = live_data(d, codes, need_min, reuse=reuse)
+    live = live_data(d, codes, need_min, reuse=reuse, reuse_age=reuse_age)
     if live["today"].empty:
         raise Skip("今天沒有盤中資料（休市、尚未開盤，或永豐快照抓不到）")
     msg = job_screen(d, only=only, live=live)
@@ -757,15 +758,20 @@ def job_live(d: date, only: list[str] | None = None, reuse: bool = False) -> str
 
 
 def job_screen_now(d: date, strategy: str) -> str:
-    """網頁按「立即選股」：盤中用盤中資料，盤後用最新收盤資料，只跑這一個策略。"""
-    if market_open_now():
+    """網頁按「立即選股」：盤中用盤中資料，盤後用最新收盤資料，只跑這一個策略。
+    收盤後到晚上日K 排程跑完之前（資料庫還沒有今天的日K），也用今天的盤中 / 收盤快照，
+    不然結果會存到昨天那一天，網頁上看起來像「按了沒反應」。"""
+    now = datetime.now(config.TW_TZ)
+    with db.connect() as conn:
+        has_today = not db.query_df(conn, "select 1 from public.daily_prices where date = %s and code <> 'TAIEX' limit 1", (d,)).empty
+    after_close = now.weekday() < 5 and (now.hour, now.minute) >= (13, 50) and not has_today
+    note = ""
+    if market_open_now() or after_close:
         try:
-            return job_live(d, only=[strategy], reuse=True)
-        except Exception as e:  # noqa: BLE001  盤中資料抓不到時，至少用最新收盤資料跑一次
+            return job_live(d, only=[strategy], reuse=True, reuse_age=600 if after_close else None)
+        except Exception as e:  # noqa: BLE001  盤中資料抓不到時（例如休市），至少用最新收盤資料跑一次
             traceback.print_exc()
             note = f"盤中資料抓不到（{e}），改用最新收盤資料；"
-    else:
-        note = ""
     with db.connect() as conn:
         last = db.query_df(conn, "select max(date) as d from public.daily_prices where code <> 'TAIEX' and date <= %s", (d,))["d"][0]
     return f"{note}{last}：" + job_screen(last, only=[strategy])
