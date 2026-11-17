@@ -7,7 +7,8 @@ import { allStocks, type Condition } from "@/lib/data";
 
 function parse(v: string) {
   const [bits, n, m] = v.split("|");
-  return { bits: bits.split("").map((x) => x === "1"), bars: +n || 0, minute: m === "m" };
+  // ?：盤中粗篩時日K 條件沒過、沒抓分K，這條分K 條件沒檢查
+  return { bits: bits.split("").map((x) => x === "1"), unk: bits.split("").map((x) => x === "?"), bars: +n || 0, minute: m === "m" };
 }
 
 export default function Diagnose({ conds, diag }: { conds: Condition[]; diag: Record<string, string> }) {
@@ -16,14 +17,15 @@ export default function Diagnose({ conds, diag }: { conds: Condition[]; diag: Re
   useEffect(() => { allStocks().then((l) => setNames(Object.fromEntries(l.map((s) => [s.code, s.name])))).catch(() => {}); }, []);
 
   const near = useMemo(() => {
-    const out: { code: string; fail: number }[] = [];
+    const out: { code: string; fail: number; unk: boolean }[] = [];
     for (const [code, v] of Object.entries(diag)) {
-      const { bits } = parse(v);
-      const f = bits.map((b, i) => (b ? -1 : i)).filter((i) => i >= 0);
-      if (f.length === 1 && f[0] < conds.length) out.push({ code, fail: f[0] });
+      const { bits, unk } = parse(v);
+      const f = bits.map((b, i) => (b || unk[i] ? -1 : i)).filter((i) => i >= 0);
+      if (f.length === 1 && f[0] < conds.length) out.push({ code, fail: f[0], unk: unk.some(Boolean) });
     }
     return out;
   }, [diag, conds.length]);
+  const unkCodes = useMemo(() => new Set(near.filter((x) => x.unk).map((x) => x.code)), [near]);
   const byFail = useMemo(() => {
     const m = new Map<number, string[]>();
     near.forEach((x) => m.set(x.fail, [...(m.get(x.fail) ?? []), x.code]));
@@ -44,25 +46,25 @@ export default function Diagnose({ conds, diag }: { conds: Condition[]; diag: Re
         {r && (
           <div className="space-y-1">
             <div className="text-sm"><b>{realCode} {names[realCode]}</b>
-              <span className="text-xs text-muted ml-2">日K {r.bars} 根{r.bars < 250 ? "（不足 250 根，半年線 / 年線算不出來）" : ""}・{r.minute ? "有分K" : "沒有分K 資料"}</span></div>
+              <span className="text-xs text-muted ml-2">日K {r.bars} 根{r.bars < 250 ? "（不足 250 根，半年線 / 年線算不出來）" : ""}・{r.unk.some(Boolean) ? "盤中沒抓分K（日K 條件沒過）" : r.minute ? "有分K" : "沒有分K 資料"}</span></div>
             {conds.map((c, i) => (
               <div key={i} className="flex gap-2 text-[13px]">
-                <span className={r.bits[i] ? "down" : "up"}>{r.bits[i] ? "✓" : "✗"}</span>
-                <span className={r.bits[i] ? "" : "font-semibold"}>{i + 1}. {condText(c)}</span>
+                <span className={r.unk[i] ? "text-muted" : r.bits[i] ? "down" : "up"}>{r.unk[i] ? "－" : r.bits[i] ? "✓" : "✗"}</span>
+                <span className={r.bits[i] || r.unk[i] ? "" : "font-semibold"}>{i + 1}. {condText(c)}{r.unk[i] && <span className="text-xs text-muted">（沒檢查）</span>}</span>
               </div>
             ))}
-            <p className="text-[11px] text-muted">✗ 的條件就是沒選到的原因。日K 不夠長、沒有分K 時，相關條件一定是 ✗。</p>
+            <p className="text-[11px] text-muted">✗ 的條件就是沒選到的原因。日K 不夠長、沒有分K 時，相關條件一定是 ✗。{r.unk.some(Boolean) && "－ 是盤中加速時沒檢查的分K 條件：前面的日K 條件已經沒過，不用再抓這檔的分K。"}</p>
           </div>
         )}
         {byFail.length > 0 && (
           <div className="space-y-2">
-            <div className="text-xs text-muted">只差一條就符合（共 {near.length} 檔）</div>
+            <div className="text-xs text-muted">只差一條就符合（共 {near.length} 檔）{unkCodes.size > 0 && "・標 ? 的分K 條件沒檢查，不一定真的只差一條"}</div>
             {byFail.map(([i, codes]) => (
               <div key={i} className="text-[13px]">
                 <div className="mb-1">卡在 <b className="up">{i + 1}. {condText(conds[i])}</b>：{codes.length} 檔</div>
                 <div className="flex flex-wrap gap-1.5">
                   {codes.slice(0, 40).map((c) => (
-                    <Link key={c} href={`/stock/${c}`} className="chip !min-h-[24px] !py-0.5 text-xs">{c} {names[c] ?? ""}</Link>
+                    <Link key={c} href={`/stock/${c}`} className="chip !min-h-[24px] !py-0.5 text-xs">{c} {names[c] ?? ""}{unkCodes.has(c) ? " ?" : ""}</Link>
                   ))}
                   {codes.length > 40 && <span className="text-xs text-muted">…還有 {codes.length - 40} 檔</span>}
                 </div>

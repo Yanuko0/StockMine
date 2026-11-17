@@ -8,7 +8,11 @@ type Meta = {
   total: number;
   funnel?: { single: number[]; cumul: number[] };
   coverage?: { minute: number; inst: number; mainforce: number; yields: number; margins: number };
+  prefilter?: { candidates: number; unknown: { single: number[]; cumul: number[] } };
 };
+
+// 盤中粗篩過：有些股票的分K 條件沒檢查，只知道範圍（例如 33～60 檔）
+const range = (n: number, u = 0) => (u > 0 ? `${n}～${n + u}` : `${n}`);
 
 const NEED_TEXT = {
   minute: (n: number, t: number) => `只有 ${n} / ${t} 檔有分K 資料`,
@@ -23,10 +27,13 @@ export default function Funnel({ conds, logic, meta, defaultOpen }: { conds: Con
   if (!f || f.single.length !== conds.length) return null;
   const t = meta.total || 1;
   const cov = meta.coverage;
+  const pf = meta.prefilter;
+  const uS = pf?.unknown.single ?? [];
+  const uC = pf?.unknown.cumul ?? [];
   // 讓結果變成 0 的那一條、單獨看最嚴格的那一條
-  const zeroAt = logic === "OR" ? -1 : f.cumul.findIndex((c) => c === 0);
+  const zeroAt = logic === "OR" ? -1 : f.cumul.findIndex((c, i) => c === 0 && !uC[i]);
   let strict = -1;
-  f.single.forEach((n, i) => { if (conds[i]?.kind !== "group" && conds[i]?.kind !== "unsupported" && (strict < 0 || n < f.single[strict])) strict = i; });
+  f.single.forEach((n, i) => { if (!uS[i] && conds[i]?.kind !== "group" && conds[i]?.kind !== "unsupported" && (strict < 0 || n < f.single[strict])) strict = i; });
 
   return (
     <div className="card overflow-hidden">
@@ -47,16 +54,19 @@ export default function Funnel({ conds, logic, meta, defaultOpen }: { conds: Con
               <div key={i} className={`px-4 py-1.5 ${i === zeroAt ? "bg-up-soft" : ""}`}>
                 <div className="grid grid-cols-[1fr_64px_64px] gap-2 items-center text-[13px]">
                   <span className="min-w-0 truncate">{i + 1}. {condText(c)}</span>
-                  <span className="text-right num">{f.single[i]}</span>
-                  <span className={`text-right num font-semibold ${f.cumul[i] === 0 ? "up" : ""}`}>{logic === "OR" ? "" : f.cumul[i]}</span>
+                  <span className="text-right num">{range(f.single[i], uS[i])}</span>
+                  <span className={`text-right num font-semibold ${f.cumul[i] === 0 && !uC[i] ? "up" : ""}`}>{logic === "OR" ? "" : range(f.cumul[i], uC[i])}</span>
                 </div>
                 <div className="h-1 rounded-full bg-panel-2 mt-1 overflow-hidden"><div className="h-full bg-accent" style={{ width: `${Math.max(pct, f.single[i] ? 1 : 0)}%` }} /></div>
                 {i === zeroAt && <div className="text-[11px] up mt-0.5">到這一條剩 0 檔：前面剩下的 {i ? f.cumul[i - 1] : meta.total} 檔都不符合這條</div>}
                 {i === strict && i !== zeroAt && <div className="text-[11px] text-muted mt-0.5">單獨看最嚴格的一條（全市場只有 {f.single[i]} 檔符合）</div>}
-                {need && covN != null && <div className="text-[11px] text-accent mt-0.5">{NEED_TEXT[need](covN, meta.total)}</div>}
+                {need && covN != null && !(pf && need === "minute") && <div className="text-[11px] text-accent mt-0.5">{NEED_TEXT[need](covN, meta.total)}</div>}
               </div>
             );
           })}
+          {pf && (
+            <p className="px-4 pt-2 text-[11px] text-accent">盤中加速：先用不需要分K 的條件篩，只抓通過的 {pf.candidates} 檔分K。其他股票的分K 條件沒檢查，所以有些數字是範圍（例如 33～60）。選股結果不受影響。</p>
+          )}
           <p className="px-4 py-2 text-[11px] text-muted">「累積剩下」是從第 1 條依序套用到這一條後還剩幾檔。最後剩 0 時，可以把讓結果變成 0 的那條放寬（例如糾結 3% → 5%），或先刪掉暫時沒有資料的條件。</p>
         </div>
       )}

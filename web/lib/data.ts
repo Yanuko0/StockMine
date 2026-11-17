@@ -452,7 +452,8 @@ export async function getResults(strategyId: string, limit = 20) {
     meta: {
       total: number; minute_codes: number | null; empty_groups?: string[];
       funnel?: { single: number[]; cumul: number[] };
-      diag?: Record<string, string>; // 逐檔：每條條件 1/0 | 日K 根數 | m=有分K
+      diag?: Record<string, string>; // 逐檔：每條條件 1/0/?（?=盤中粗篩沒抓分K、沒檢查）| 日K 根數 | m=有分K
+      prefilter?: { candidates: number; unknown: { single: number[]; cumul: number[] } }; // 盤中粗篩：只抓 candidates 檔的分K
       run_at?: string; // 這次選股跑完的時間
       coverage?: { minute: number; inst: number; mainforce: number; yields: number; margins: number };
     } | null;

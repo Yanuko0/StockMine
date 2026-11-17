@@ -440,14 +440,17 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None,
             return "沒有任何策略" + (_run_tranche(d) + _more_financials(d, 1800) if full else "")
         offset = int(db.get_setting(conn, "deduct_offset", 0) or 0)
         strat_list = strategies["conditions"].tolist()
+        # 日K 讀幾年、要不要算週 / 月K：粗篩也用「完整策略」決定。KD、RSI、MACD 這類指標跟資料起點有關，
+        # 讀的年數不同，數值會有些微差異，邊緣的股票可能粗篩刷掉、完整判斷卻會選到
+        full_tfs = screener.needed_timeframes(strat_list)
         if prefilter:
             strat_list = [screener.without_minute(s, MINUTE_TFS) for s in strat_list]
             if any(s is None for s in strat_list):
                 return None
-        tfs_needed = screener.needed_timeframes(strat_list)
+        tfs_needed = screener.needed_timeframes(strat_list) | (full_tfs - MINUTE_TFS)
 
         # 日K：有月K條件時需要多年資料
-        years = config.DAILY_KEEP_YEARS if "M" in tfs_needed else (2 if "W" in tfs_needed else 1.2)
+        years = config.DAILY_KEEP_YEARS if "M" in full_tfs else (2 if "W" in full_tfs else 1.2)
         since = d - timedelta(days=int(365 * years))
         daily = db.query_df(conn, """select code, date, open, high, low, close, volume
                                      from public.daily_prices where date >= %s and date <= %s
@@ -540,6 +543,12 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None,
     cumul = {i: [0] * len(s.get("conditions") or []) for i, s in enumerate(strat_list)}
     # 逐檔診斷：每檔每條條件成不成立（"1101…"）＋ 日K 根數、有沒有分K → 網頁可以查「這檔為什麼沒選到」
     diag: dict[int, dict] = {i: {} for i in range(len(strat_list))}
+    # 盤中粗篩過：沒通過日K 條件的股票沒抓分K，它們的分K 條件是「沒檢查」（診斷標 ?，漏斗另外算），不是「不成立」
+    cand_set = (live or {}).get("candidates")
+    minute_idx = {i: {j for j, c in enumerate(s.get("conditions") or [])
+                      if screener.needed_timeframes([{"conditions": [c]}]) & MINUTE_TFS} for i, s in enumerate(strat_list)}
+    unk_single = {i: [0] * len(s.get("conditions") or []) for i, s in enumerate(strat_list)}
+    unk_cumul = {i: [0] * len(s.get("conditions") or []) for i, s in enumerate(strat_list)}
     for code in codes:
         g = daily_g[code]
         tfs: dict[str, screener.Series] = {"D": screener.Series(g)}
@@ -576,12 +585,17 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None,
             chips["groups"] = code_groups.get((o, code), set())
             chips["group_sizes"] = group_sizes.get(o, {})
             parts = screener.eval_parts(s, tfs, chips)
-            diag[i][code] = "".join("1" if x else "0" for x in parts) + f"|{len(g)}|{'m' if (raw or today_m1 is not None) else ''}"
-            alive = True
+            unk = {j for j in minute_idx[i]} if cand_set is not None and code not in cand_set else set()
+            diag[i][code] = "".join("?" if j in unk else ("1" if x else "0") for j, x in enumerate(parts)) \
+                + f"|{len(g)}|{'m' if (raw or today_m1 is not None) else ''}"
+            alive, maybe = True, True  # maybe：沒檢查的分K 條件當作成立（上限）
             for j, ok in enumerate(parts):
                 single[i][j] += ok
+                unk_single[i][j] += j in unk
                 alive = alive and ok
+                maybe = maybe and (ok or j in unk)
                 cumul[i][j] += alive
+                unk_cumul[i][j] += maybe and not alive
             if screener.combine(s, parts):
                 last = g.iloc[-1]
                 prev = g.iloc[-2]["close"] if len(g) > 1 else None
@@ -603,6 +617,8 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None,
         info = {"run_at": datetime.now(config.TW_TZ).isoformat(timespec="seconds"),  # 網頁用來判斷「重跑完成了」
                 "total": len(codes), "minute_codes": len(minute_raw) if uses_min else None,
                 "funnel": {"single": single[i], "cumul": cumul[i]}, "diag": diag[i],
+                **({"prefilter": {"candidates": len(cand_set),
+                                  "unknown": {"single": unk_single[i], "cumul": unk_cumul[i]}}} if cand_set is not None else {}),
                 "coverage": {"minute": len(minute_raw), "inst": len(inst_g), "mainforce": len(mf_g),
                              "yields": len(yields), "margins": sum(1 for v in margins.values() if v and all(x is not None for x in v))}}
         empty = [n for c in screener.iter_conditions(s.conditions) if c.get("kind") == "in_group"
