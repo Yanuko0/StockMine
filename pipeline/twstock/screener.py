@@ -473,6 +473,19 @@ def eval_strategy(strategy: dict, tfs: dict[str, Series], chips: dict) -> bool:
     return any(results) if strategy.get("logic") == "OR" else all(results)
 
 
+def without_minute(strategy: dict, minute_tfs: set[str]) -> dict | None:
+    """盤中先粗篩用：拿掉用到分K 的條件，只留日K / 籌碼這些不用逐檔抓分K 就能判斷的。
+    AND 策略拿掉條件只會「放寬」，所以粗篩通過的一定包含最後會選到的。
+    OR 策略、或拿掉後沒條件了 → 回傳 None（不能粗篩，全部都要抓分K）。"""
+    if strategy.get("logic") == "OR":
+        return None
+    keep = [c for c in strategy.get("conditions") or []
+            if not (needed_timeframes([{"conditions": [c]}]) & minute_tfs)]
+    if not keep:
+        return None
+    return {**strategy, "conditions": keep}
+
+
 def needed_timeframes(strategies: list[dict]) -> set[str]:
     tfs = set()
     for s in strategies:

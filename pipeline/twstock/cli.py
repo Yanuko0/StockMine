@@ -421,11 +421,14 @@ def job_broker(d: date, extra_codes: list[str] | None = None, pool: bool = True)
 MINUTE_TFS = set(bars.MINUTE_TFS)
 
 
-def job_screen(d: date, only: list[str] | None = None, live: dict | None = None) -> str:
+def job_screen(d: date, only: list[str] | None = None, live: dict | None = None, prefilter: bool = False):
     """選股。
     only：只跑這幾個策略（網頁按「立即選股」時）；live：盤中資料
       {"ts": 時間, "today": 今天到目前為止的日K（code, open, high, low, close, volume 股）, "m1": {code: 今天的 1分K}}
     盤中結果存 screen_live；盤後存 screen_results。只有每天的正式排程（only/live 都沒給）才跑建倉提醒、補財報。
+    prefilter=True：盤中粗篩，只用不需要分K 的條件判斷，回傳「可能會選到」的股票代號（set），不存結果；
+      有策略不能粗篩時回傳 None（全部都要抓分K）。
+    live["candidates"]：只有這些股票需要讀分K（粗篩沒過的，分K 條件反正不會成立）。
     """
     full = only is None and live is None
     with db.connect() as conn:
@@ -437,6 +440,10 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
             return "沒有任何策略" + (_run_tranche(d) + _more_financials(d, 1800) if full else "")
         offset = int(db.get_setting(conn, "deduct_offset", 0) or 0)
         strat_list = strategies["conditions"].tolist()
+        if prefilter:
+            strat_list = [screener.without_minute(s, MINUTE_TFS) for s in strat_list]
+            if any(s is None for s in strat_list):
+                return None
         tfs_needed = screener.needed_timeframes(strat_list)
 
         # 日K：有月K條件時需要多年資料
@@ -519,8 +526,10 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
     codes = [c for c, g in daily_g.items() if g["date"].iloc[-1] == d and meta["kind"].get(c) != "index"]
     minute_raw = {}
     if tfs_needed & MINUTE_TFS:
-        minute_raw = {c: v for c, v in load_minute_files(codes).items() if v}  # 只算真的有檔案的
-        if not minute_raw and not (live or {}).get("m1"):
+        cand = (live or {}).get("candidates")
+        mcodes = codes if cand is None else [c for c in codes if c in cand]
+        minute_raw = {c: v for c, v in load_minute_files(mcodes).items() if v}  # 只算真的有檔案的
+        if not minute_raw and not (live or {}).get("m1") and cand is None:
             raise RuntimeError("策略用到分K，但一檔分K 檔案都讀不到（請檢查 SUPABASE_URL / SUPABASE_SERVICE_KEY，"
                                "或分K 還沒抓過）")
 
@@ -584,6 +593,9 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None)
                                 "industry": (m["industry"] if m is not None and pd.notna(m["industry"]) else None),
                                 "mcap": mcap,  # 市值（億）
                                 "tags": screener.matched_labels(s, tfs, chips)})
+
+    if prefilter:
+        return {h["code"] for lst in hits.values() for h in lst}
 
     rows, notify = [], {}
     for i, s in enumerate(strategies.itertuples()):
@@ -691,9 +703,12 @@ def extend_with_snapshot(m1: pd.DataFrame, snap_row, now: datetime) -> pd.DataFr
     return pd.concat([m1, bar], ignore_index=True)
 
 
-def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False, reuse_age: int | None = None) -> dict:
+def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False, reuse_age: int | None = None,
+              pick=None) -> dict:
     """用永豐 Shioaji 抓盤中資料：全市場快照（今天的日K）＋（需要時）今天的 1分K。
-    reuse=True：40 分鐘內盤中排程抓過今天的 1分K 就沿用，只用快照補最新價格（快很多，不用逐檔抓）。"""
+    reuse=True：40 分鐘內盤中排程抓過今天的 1分K 就沿用，只用快照補最新價格（快很多，不用逐檔抓）。
+    pick(today) → 只有這些股票需要抓分K（粗篩結果；None = 全部）。分K 要逐檔抓，全市場約 1900 檔要十幾分鐘，
+    先用日K 條件刷掉大部分股票，通常只剩幾十到幾百檔。"""
     if not (config.SHIOAJI_API_KEY and config.SHIOAJI_SECRET_KEY):
         raise Skip("尚未設定永豐金鑰（SHIOAJI_API_KEY），無法盤中選股")
     from .sources.shioaji_src import ShioajiClient
@@ -708,8 +723,14 @@ def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False
         now = datetime.now(config.TW_TZ)
         m1: dict = {}
         approx_since = None
+        candidates = None
         if need_minutes:
             todo = list(today["code"])
+            if pick is not None:
+                candidates = pick(today)
+                if candidates is not None:
+                    print(f"[live] 粗篩（不看分K 的條件）剩 {len(candidates)} / {len(todo)} 檔，只抓這些的分K")
+                    todo = [c for c in todo if c in candidates]
             if cached:
                 approx_since = cached["ts"]
                 by = today.set_index("code")
@@ -718,24 +739,32 @@ def live_data(d: date, codes: list[str], need_minutes: bool, reuse: bool = False
                         m1[c] = extend_with_snapshot(cached["m1"][c], by.loc[c], now)
                 todo = [c for c in todo if c not in m1]  # 快取裡沒有的才逐檔抓
                 print(f"[live] 沿用 {cached['ts']:%H:%M} 抓的分K {len(m1)} 檔，另外要抓 {len(todo)} 檔")
-            for c in todo:
-                rem = sj.remaining_mb()
-                if rem is not None and rem < 40:
-                    print("[live] Shioaji 今日流量快用完，分K 只抓到這裡")
-                    break
+            fetched: dict = {}
+            for i, c in enumerate(todo):
+                if i % 50 == 0:  # 查流量也是一次 API 呼叫：每 50 檔查一次就好（原本每檔都查，時間多一倍）
+                    rem = sj.remaining_mb()
+                    if rem is not None and rem < 40:
+                        print("[live] Shioaji 今日流量快用完，分K 只抓到這裡")
+                        break
+                if i and i % 200 == 0:
+                    print(f"[live] 分K 抓了 {i} / {len(todo)} 檔")
                 try:
                     df = sj.kbars_1m(c, d, d)
                 except Exception as e:  # noqa: BLE001
                     print(f"[live] {c} 分K 失敗：{e}")
                     continue
                 if not df.empty:
-                    m1[c] = df[df["ts"].dt.date == d].reset_index(drop=True)
-            if not cached and m1:
-                save_live_m1(d, m1, now)  # 給接下來的「立即選股」沿用
+                    m1[c] = fetched[c] = df[df["ts"].dt.date == d].reset_index(drop=True)
+            if fetched:  # 給接下來的「立即選股」沿用（跟原本快取裡的合在一起存）
+                if cached:
+                    save_live_m1(d, {**cached["m1"], **fetched}, cached["ts"])
+                else:
+                    save_live_m1(d, fetched, now)
         usage = sj.usage()
     finally:
         sj.close()
-    return {"ts": now, "today": today, "m1": m1, "usage": usage, "approx_since": approx_since}
+    return {"ts": now, "today": today, "m1": m1, "usage": usage, "approx_since": approx_since,
+            "candidates": candidates}
 
 
 def job_live(d: date, only: list[str] | None = None, reuse: bool = False, reuse_age: int | None = None) -> str:
@@ -749,7 +778,14 @@ def job_live(d: date, only: list[str] | None = None, reuse: bool = False, reuse_
     if strategies.empty:
         return "沒有任何策略"
     need_min = bool(screener.needed_timeframes(strategies["conditions"].tolist()) & MINUTE_TFS)
-    live = live_data(d, codes, need_min, reuse=reuse, reuse_age=reuse_age)
+    def pick(today):  # 先用不需要分K 的條件粗篩，只抓剩下的分K
+        try:
+            return job_screen(d, only=only, live={"ts": None, "today": today, "m1": {}}, prefilter=True)
+        except Exception:  # noqa: BLE001  粗篩失敗就照舊全部抓
+            traceback.print_exc()
+            return None
+
+    live = live_data(d, codes, need_min, reuse=reuse, reuse_age=reuse_age, pick=pick)
     if live["today"].empty:
         raise Skip("今天沒有盤中資料（休市、尚未開盤，或永豐快照抓不到）")
     msg = job_screen(d, only=only, live=live)
