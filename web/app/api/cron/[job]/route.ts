@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 
 // 網址 → GitHub workflow 檔名（「-2」是同一個工作的第二次，避免第一次剛好太早或失敗）
-const JOBS: Record<string, string> = { global: "global.yml", news: "news.yml" };
+const JOBS: Record<string, string> = { global: "global.yml", news: "news.yml", outlook: "outlook.yml" };
 
 export async function GET(req: Request, ctx: { params: Promise<{ job: string }> }) {
   const secret = process.env.CRON_SECRET;

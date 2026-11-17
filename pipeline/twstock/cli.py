@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from . import bars, broker_files, global_themes, news, company, config, db, fundamentals, summary, gdrive, push, screener, storage, tranche
+from . import bars, broker_files, global_themes, news, company, config, db, fundamentals, outlook, summary, gdrive, push, screener, storage, tranche
 from .sources import broker as broker_src
 from .sources import finmind, official
 
@@ -977,7 +977,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--strategy", help="策略 ID（立即選股）")
     a = p.parse_args(argv)
     # 盤後工作沒指定日期：用「最近一個該處理的交易日」（排程被延到隔天凌晨也不會抓錯天）
-    d = config.parse_date(a.date) if a.date or a.job not in ("eod", "broker", "minutes", "screen", "margin") else session_date()
+    d = config.parse_date(a.date) if a.date or a.job not in ("eod", "broker", "minutes", "screen", "margin", "outlook") else session_date()
     codes = [c.strip() for c in a.codes.split(",") if c.strip()] if a.codes else None
 
     try:
@@ -1005,6 +1005,9 @@ def main(argv: list[str] | None = None) -> int:
         elif a.job == "news":
             with db.connect() as conn:
                 msg = news.update(conn)
+        elif a.job == "outlook":
+            with db.connect() as conn:
+                msg = outlook.update(conn, d)
         elif a.job == "backfill-daily":
             start = config.parse_date(a.start) if a.start else d - timedelta(days=int(365.25 * config.DAILY_KEEP_YEARS))
             end = config.parse_date(a.end) if a.end else d

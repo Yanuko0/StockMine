@@ -649,3 +649,58 @@ export async function getNews(f: { code?: string; theme?: string; keyword?: stri
   if (error) throw error;
   return (data ?? []) as NewsItem[];
 }
+
+// ---------------------------------------------------------------- 個股展望（新聞、目標價、偏多 / 偏空、機率、風險）
+export type Reason = { k: string; t: string };
+export type AiReason = { t: string; n: number[] };
+export type StateStats = { n: number; win: number; mean: number; median: number; p10: number; p25: number; p75: number; p90: number; mae_med: number; mae_p10: number };
+export type Outlook = {
+  date: string; close: number; state: Record<string, string>; basis: "f" | "p" | "";
+  stats: StateStats | null; base: StateStats;
+  verdict: { side: "偏多" | "偏空" | "中性" | "資料不足"; p_up: number | null; p_down?: number; edge: number | null; se?: number; conf?: "高" | "中" | "低"; text: string };
+  bull: Reason[]; bear: Reason[];
+  risk: { atr: number; vol: number; vol_pct: number | null; level: "高" | "中" | "低"; stop: number; stop_pct: number; target: number | null; target_hist: number | null; rr: number | null; size_1pct: number | null };
+  plan: string[];
+  targets: { n: number; median?: number; high?: number; low?: number; upside?: number | null; up90?: number; down90?: number; bull?: number; bear?: number; last?: string } | null;
+  ai: { bull: AiReason[]; bear: AiReason[]; one_line: string; model?: string; at?: string;
+        news: { ts: string; title: string; url: string; source: string }[] } | null;
+};
+export type OutlookModel = {
+  at: string; built?: string; horizon: number; years: number; ai_note?: string; base: StateStats;
+  calib: { since?: string; n?: number; rows?: { bucket: string; n: number; pred: number; actual: number }[]; test_base?: number; train_base?: number; brier?: number; brier_base?: number; skill?: number | null };
+  track: { n?: number; all_up?: number; bull_n?: number; bull_up?: number | null; bear_n?: number; bear_up?: number | null };
+};
+export type TargetPrice = {
+  code: string; broker: string; target: number; date: string; prev: number | null; rating: string | null;
+  stance: "多" | "中" | "空" | null; action: "up" | "down" | "keep" | "init" | null;
+  title: string | null; url: string | null; source: string | null; origin: "rule" | "ai" | null;
+};
+export type StockNews = { ts: string; title: string; source: string; url: string; summary?: string };
+
+export async function getOutlook(code: string) {
+  const { data, error } = await sb().from("stock_outlook").select("date,data,updated_at").eq("code", code).maybeSingle();
+  if (error) throw error;
+  return data ? { ...(data.data as Outlook), updated_at: data.updated_at as string } : null;
+}
+export async function getOutlookModel() {
+  return getSetting<OutlookModel | null>("outlook_model", null);
+}
+export async function getTargets(code: string, limit = 80): Promise<TargetPrice[]> {
+  return must(await sb().from("target_prices").select("*").eq("code", code)
+    .order("date", { ascending: false }).limit(limit)) as TargetPrice[];
+}
+/** 個股新聞：Google / Yahoo（30 天）＋ 我們新聞表裡標到這檔的，同標題只留一則，新的在前 */
+export async function getStockNews(code: string, name: string, days = 30): Promise<StockNews[]> {
+  const [ext, own] = await Promise.all([
+    fetch(`/api/stock-news?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}&days=${days}`)
+      .then((r) => (r.ok ? r.json() : { items: [] })).then((j) => (j.items ?? []) as StockNews[]).catch(() => [] as StockNews[]),
+    getNews({ code, limit: 40 }).catch(() => [] as NewsItem[]),
+  ]);
+  const key = (t: string) => t.replace(/[\s\p{P}\p{S}]/gu, "").toLowerCase();
+  const m = new Map<string, StockNews>();
+  for (const x of [...own.map((n) => ({ ts: n.ts, title: n.title, source: n.source ?? "", url: n.url ?? "", summary: n.summary ?? "" })), ...ext]) {
+    const k = key(x.title);
+    if (!m.has(k)) m.set(k, x);
+  }
+  return [...m.values()].sort((a, b) => b.ts.localeCompare(a.ts));
+}

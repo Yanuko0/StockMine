@@ -6,6 +6,61 @@
 
 ---
 
+## 2026-11-17　個股「新聞・展望」：新聞、券商目標價、偏多 / 偏空、上漲機率、風險、AI 提示詞
+
+**改了什麼**
+- 個股頁新增一頁：電腦版在右側，「籌碼 / 分點進出」旁邊叫「新聞・展望」；手機版是第四個分頁「展望」。內容如下：
+  - **多空展望**：
+    - 之後 20 個交易日上漲 / 下跌的機率，用過去 3 年全市場「同樣狀態」的實際結果統計。狀態包括趨勢、近 20 日漲跌、RSI、量能、外資近 5 日。
+    - 跟全市場平均比較，附可信度。差距在誤差範圍內就判「中性」，不硬說偏多或偏空。
+    - 偏多理由、偏空理由，涵蓋技術、量價、法人、主力、融資、目標價、新聞熱度。
+  - **新聞理由（選填）**：設定 Gemini 免費金鑰後，AI 會把新聞整理成看多 / 看空理由。每條都附新聞連結，對不到新聞的理由會自動丟掉。
+  - **風險**：
+    - 高 / 中 / 低，依據年化波動在全市場的排名，以及同狀態歷史上最差的情況。
+    - 參考做法：停損、目標、風險報酬比、部位上限。
+  - **「這個機率準不準？」**：用前 2 年的資料算機率，再用最近一年的實際結果對答案。上線後也會累積實際成績。
+  - **自己問 AI**：一鍵複製整理好的提示詞，內容包括價格、均線、法人、主力、融資、目標價、新聞標題和統計。可以貼到 ChatGPT、Claude 或 Gemini。所有股票都能用，提示詞在瀏覽器裡組好，不經過我們的伺服器。
+  - **券商 / 外資目標價**：
+    - 依時間排序：券商、評等、調升或調降（原本 → 新的）、跟現價差多少，點券商名稱可以看原新聞。
+    - 摘要卡：近半年各家最新目標價的中位數、最高、最低。
+  - **個股新聞**：
+    - 可選 7 / 30 / 90 天。
+    - 來源：Google 新聞、Yahoo 股市，加上我們新聞表裡有提到這檔的新聞。
+- 每天台灣時間約 21:30 幫「所有人的自選股＋最近 3 天新聞最多的股票」計算，最多 250 檔。其他股票打開時看得到新聞、目標價，也能複製 AI 提示詞，但沒有多空統計。
+- 全部免費：新聞用公開 RSS，目標價從新聞文字整理，機率用自己的歷史資料算；AI 只用 Gemini 免費額度，也可以不用。
+
+**程式改了哪裡**
+- `pipeline/twstock/targets.py`（新）：從新聞標題 / 摘要抓目標價，包括券商別名、評等、動作、原本 → 新的目標價。
+  - 防呆：股名要在「目標價」前面；數字不能離現價太遠（排除年份等）。
+  - 同一家券商、同一個目標價，10 天內不同媒體轉載只算一次。
+  - `summarize()`：每家券商最新一筆的中位數、上檔空間、近 90 天調升 / 調降次數。
+- `pipeline/twstock/outlook.py`（新）：
+  - `features` / `state_table` / `calibrate`：狀態分類、之後 20 日的報酬與期間最大回檔、歷史統計、回測校準（含 Brier 分數）。全市場 3 年的統計一週重算一次，省 Supabase 流量。
+  - `verdict`：重疊樣本保守當 1/10 計算誤差，差距不夠大就判中性。
+  - `rule_reasons`、`risk_plan`、`plan_text`：規則理由、風險、參考做法。
+  - `fetch_stock_news`：個股新聞，Google 新聞 RSS＋Yahoo。
+  - `ai_reasons` / `validate_ai`：呼叫 Gemini，並逐條核對新聞編號；目標價數字必須在該新聞裡出現。新聞沒變就不重問；遇到 429 就停；最多 40 次。
+  - `live_track`：上線後的實際成績。
+  - 2 小時內跑過就略過（GitHub 排程和 Vercel Cron 都會叫）。
+- `pipeline/twstock/cli.py`：新工作 `outlook`。
+- `pipeline/tests/test_outlook.py`（新）：目標價抓取、轉載去重、AI 結果核對、機率誤差判斷、之後 20 日結果計算、完整跑一次的資料庫測試。全部測試 74 個通過。
+- `supabase/013_outlook.sql`（新，也加進 `schema.sql`）：`target_prices`、`stock_outlook`、`outlook_log` 三張表，登入者可讀。
+- 排程：
+  - `outlook.yml`（新）：GitHub 排程，台灣時間 22:50 當備用。
+  - `web/vercel.json`：Vercel Cron 台灣時間 21:30 叫一次。
+  - `web/app/api/cron/[job]/route.ts`：加 `outlook`。
+- `web/app/api/stock-news/route.ts`（新）：個股新聞代抓，Google 新聞＋Yahoo RSS，快取 30 分鐘，只回傳標題、時間、來源、連結。
+- `web/components/OutlookPanel.tsx`（新）、`web/lib/aiPrompt.ts`（新）、`web/lib/data.ts`（`getOutlook`、`getTargets`、`getStockNews`、`getOutlookModel` 與型別）。
+- `web/app/stock/[code]/page.tsx`：加「新聞・展望」/「展望」分頁。
+
+**你要做的**
+1. Supabase SQL Editor 執行 `supabase/013_outlook.sql`。
+2. 把 `_待移入_github_workflows/outlook.yml` 移到 `.github/workflows/`。
+3. （選填）到 Google AI Studio 申請免費 API 金鑰，放到 GitHub → Settings → Secrets → Actions，名稱 `GEMINI_API_KEY`。不設也能用，只是沒有 AI 新聞理由。
+4. Commit + Push 後，到 GitHub Actions 手動執行一次「個股展望」。
+
+---
+
 ## 2026-11-17　盤中立即選股太慢（跑 15～20 分鐘）
 
 **改了什麼**

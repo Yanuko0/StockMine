@@ -8,6 +8,7 @@ import dynamic from "next/dynamic";
 import type { SubInd } from "@/components/KChart";
 import ChipsPanel from "@/components/ChipsPanel";
 import BrokerPanel from "@/components/BrokerPanel";
+import OutlookPanel from "@/components/OutlookPanel";
 import QuoteHeader from "@/components/QuoteHeader";
 import DrawToolbar, { COLORS } from "@/components/DrawToolbar";
 import DrawEditor from "@/components/DrawEditor";
@@ -39,13 +40,14 @@ function loadPref<T>(k: string, d: T): T {
 }
 function savePref(k: string, v: unknown) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* */ } }
 
-type Tab = "tech" | "chips" | "broker";
+type Tab = "tech" | "chips" | "broker" | "outlook";
+type Side = "chips" | "broker" | "outlook";
 
 export default function StockPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
   const [stock, setStock] = useState<Stock | null>(null);
   const [tab, setTab] = useState<Tab>("tech");
-  const [sideTab, setSideTab] = useState<"chips" | "broker">(() => loadPref("sideTab", "chips"));
+  const [sideTab, setSideTab] = useState<Side>(() => loadPref("sideTab", "chips"));
   const [sideOpen, setSideOpen] = useState<boolean>(() => loadPref("sideOpen", true)); // 電腦版右側個股資訊：展開 / 收起
   useEffect(() => savePref("sideOpen", sideOpen), [sideOpen]);
   useEffect(() => savePref("sideTab", sideTab), [sideTab]);
@@ -373,9 +375,10 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
           )}
         </div>
   );
-  const sidePanel = (key: "chips" | "broker") => key === "chips"
+  const sidePanel = (key: Side) => key === "chips"
     ? <ChipsPanel code={code} daily={daily} market={stock?.market} />
-    : <BrokerPanel code={code} daily={daily} market={stock?.market} />;
+    : key === "broker" ? <BrokerPanel code={code} daily={daily} market={stock?.market} />
+    : <OutlookPanel code={code} name={stock?.name} industry={stock?.industry} daily={daily} />;
 
   return (
     <div className="h-full flex flex-col">
@@ -417,7 +420,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
             <QuoteHeader daily={daily} side liveTime={live?.date === daily[daily.length - 1]?.date ? live?.time : undefined} />
             <div className="px-3 py-2 border-y border-line">
               <div className="seg w-full">
-                {([["chips", "籌碼"], ["broker", "分點進出"]] as const).map(([k, l]) => (
+                {([["chips", "籌碼"], ["broker", "分點進出"], ["outlook", "新聞・展望"]] as const).map(([k, l]) => (
                   <button key={k} className="flex-1" aria-pressed={sideTab === k} onClick={() => setSideTab(k)}>{l}</button>
                 ))}
               </div>
@@ -430,7 +433,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
         <>
           <QuoteHeader daily={daily} liveTime={live?.date === daily[daily.length - 1]?.date ? live?.time : undefined} />
           <div className="tabbar" role="tablist">
-            {([["tech", "技術"], ["chips", "籌碼"], ["broker", "進出"]] as const).map(([k, l]) => (
+            {([["tech", "技術"], ["chips", "籌碼"], ["broker", "進出"], ["outlook", "展望"]] as const).map(([k, l]) => (
               <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{l}</button>
             ))}
           </div>
