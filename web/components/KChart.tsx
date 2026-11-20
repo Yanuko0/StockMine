@@ -29,6 +29,10 @@ interface Props {
   onMoved: (id: string, points: DrawPoint[]) => void;
   onSelect: (id: string | null) => void;
   onCross?: (index: number | null) => void; // 十字線移到第幾根（手機版自己畫均線數值用）
+  /** 日K 還有更早的資料沒載入：往左拉到底時呼叫 loadOlder 拿全部日K，載完再用 onOlder 通知頁面 */
+  hasOlder?: boolean;
+  loadOlder?: () => Promise<Bar[]>;
+  onOlder?: (all: Bar[]) => void;
 }
 
 const isSmall = () => typeof window !== "undefined" && window.innerWidth < 640;
@@ -59,6 +63,7 @@ export default function KChart(p: Props) {
   const el = useRef<HTMLDivElement>(null);
   const chart = useRef<Chart | null>(null);
   const barsRef = useRef<Bar[]>(p.bars);
+  const lastKey = useRef("");
   const subPanes = useRef<Record<string, string>>({});
   const cb = useRef(p);
   useEffect(() => { cb.current = p; });
@@ -81,7 +86,23 @@ export default function KChart(p: Props) {
     window.addEventListener(THEME_EVENT, onTheme);
     c.setSymbol({ ticker: p.code, pricePrecision: 2, volumePrecision: 0 });
     c.setPeriod(periodOf(p.tf));
-    c.setDataLoader({ getBars: ({ callback }) => callback(barsRef.current as never, false) });
+    c.setDataLoader({
+      getBars: async ({ type, callback }) => {
+        const q = cb.current;
+        const canOlder = q.tf === "D" && !!q.hasOlder && !!q.loadOlder;
+        if (type !== "forward") return callback(barsRef.current as never, { forward: canOlder, backward: false });
+        if (!canOlder) return callback([], false);
+        try {
+          const all = await q.loadOlder!();
+          const cur = barsRef.current;
+          const firstTs = cur[0]?.timestamp ?? Infinity;
+          const older = all.filter((b) => b.timestamp < firstTs);
+          barsRef.current = [...older, ...cur];
+          callback(older as never, false);
+          cb.current.onOlder?.(all);
+        } catch { callback([], false); }
+      },
+    });
     // 手機：均線數值改在圖表上方用一行顯示（畫在圖上會兩三行、蓋到 K 棒）
     c.createIndicator({ name: "TW_MA", paneId: "candle_pane", calcParams: p.maPeriods, extendData: p.maExt,
       ...(isSmall() ? { createTooltipDataSource: () => ({ name: "", calcParamsText: "", legends: [], features: [] }) } : {}) }, true);
@@ -121,6 +142,15 @@ export default function KChart(p: Props) {
   useEffect(() => {
     const c = chart.current;
     if (!c) return;
+    // 往左拉補上的舊資料已經接進圖表了：頁面隨後更新的 bars 內容一樣，就不要重設（不然畫面會跳回最右邊）
+    const cur = barsRef.current;
+    if (p.bars !== cur && p.bars.length === cur.length && p.bars.length > 0
+      && p.bars[0].timestamp === cur[0].timestamp && p.bars[p.bars.length - 1].timestamp === cur[cur.length - 1].timestamp
+      && p.bars[p.bars.length - 1].close === cur[cur.length - 1].close && lastKey.current === `${p.code}|${p.tf}`) {
+      barsRef.current = p.bars;
+      return;
+    }
+    lastKey.current = `${p.code}|${p.tf}`;
     barsRef.current = p.bars;
     c.setSymbol({ ticker: p.code, pricePrecision: 2, volumePrecision: 0 });
     c.setPeriod(periodOf(p.tf));

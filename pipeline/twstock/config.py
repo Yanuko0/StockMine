@@ -53,8 +53,11 @@ APP_URL = env("APP_URL", "")
 MINUTE_KEEP_DAYS = int(env("MINUTE_KEEP_DAYS", "30") or 30)
 # 分點資料在資料庫保留幾天
 BROKER_KEEP_DAYS = int(env("BROKER_KEEP_DAYS", "90") or 90)
-# 免費資料庫只有 500 MB：日K 保留 5 年；三大法人、融資融券保留約 400 天
-DAILY_KEEP_YEARS = int(env("DAILY_KEEP_YEARS", "5") or 5)
+# 免費資料庫只有 500 MB：日K 5 年就約 330 MB，加上籌碼會超過 → 改留 3.4 年（約 225 MB）
+#   3.4 年 = 走勢預估模型要的 3 年 + 120 天暖機；選股的月扣三低只要 1.2 年
+#   （月K MA60 要 5 年才算得出來，真的需要時再把 DAILY_KEEP_YEARS 調回 5）
+# 三大法人、融資融券保留約 400 天
+DAILY_KEEP_YEARS = float(env("DAILY_KEEP_YEARS", "3.4") or 3.4)
 CHIPS_KEEP_DAYS = int(env("CHIPS_KEEP_DAYS", "400") or 400)
 
 

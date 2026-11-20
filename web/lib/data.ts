@@ -1,6 +1,7 @@
 "use client";
 import { sb } from "./supabase";
 import { Bar, dateToTs } from "./bars";
+import { idbGet, idbSet } from "./idb";
 
 export interface Stock { code: string; name: string; market: "TWSE" | "TPEX"; kind: string; industry?: string | null }
 export interface Strategy {
@@ -92,31 +93,112 @@ export async function searchStocks(q: string): Promise<Stock[]> {
 
 // ---------- K 線 ----------
 // 日K 記憶體快取：切換股票、回上一頁都不用重抓（10 分鐘）
-const dailyCache = new Map<string, { ts: number; p: Promise<Bar[]> }>();
-export function getDaily(code: string): Promise<Bar[]> {
-  const hit = dailyCache.get(code);
-  if (hit && Date.now() - hit.ts < 600_000) return hit.p;
-  const p = fetchDaily(code).catch((e) => { dailyCache.delete(code); throw e; });
-  dailyCache.set(code, { ts: Date.now(), p });
-  if (dailyCache.size > 40) dailyCache.delete(dailyCache.keys().next().value!);
-  return p;
-}
-/** 滑鼠移到股票上就先抓，點下去幾乎立刻出現 */
-export function prefetchDaily(code: string) { void getDaily(code).catch(() => {}); }
+// ---------- 日K（省流量版）----------
+// 1. 先看這台裝置的 IndexedDB；30 分鐘內看過就直接用，超過就只抓「最後一天以後」的幾筆
+// 2. 從沒看過：先抓近 2 年（經過 /api/daily 共用快取），往左拉或切週K / 月K 才補更早的
+const RECENT_YEARS = 2; // 跟 app/api/daily/route.ts 一致
+const DAILY_FRESH_MS = 30 * 60_000;
+type DailyRow = { date: string; open: number; high: number; low: number; close: number; volume: number };
+type DailyRec = { v: 1; bars: Bar[]; full: boolean; checked: number };
 
-async function fetchDaily(code: string, years = 10): Promise<Bar[]> {
-  const since = new Date(Date.now() - years * 365 * 86400000).toISOString().slice(0, 10);
-  const rows: { date: string; open: number; high: number; low: number; close: number; volume: number }[] = [];
+const toBar = (r: DailyRow): Bar => ({
+  timestamp: dateToTs(r.date), date: r.date, open: +r.open, high: +r.high, low: +r.low,
+  close: +r.close, volume: Math.round(+r.volume / 1000), // 股 → 張
+});
+
+const dailyMem = new Map<string, { ts: number; p: Promise<DailyRec> }>();
+const dailyFull = new Set<string>();
+
+/** 打開個股：近 2 年（看過的話可能更多） */
+export function getDaily(code: string): Promise<Bar[]> { return loadDaily(code, false).then((r) => r.bars); }
+/** 資料庫裡全部的日K（往左拉到底、週K / 月K） */
+export function getDailyAll(code: string): Promise<Bar[]> { return loadDaily(code, true).then((r) => r.bars); }
+/** 是否已經拿到全部歷史（沒有更早的可以補） */
+export function isDailyFull(code: string): boolean { return dailyFull.has(code); }
+/** 滑鼠移到股票上：以前會先上網抓整包 10 年日K（很耗流量），現在只先打開這台裝置的存檔，不上網 */
+export function prefetchDaily(code: string) {
+  if (dailyMem.has(code)) return;
+  void idbGet<DailyRec>(`d:${code}`).catch(() => null);
+}
+
+function loadDaily(code: string, wantFull: boolean): Promise<DailyRec> {
+  const hit = dailyMem.get(code);
+  if (hit && Date.now() - hit.ts < DAILY_FRESH_MS) {
+    return hit.p.then((r) => (wantFull && !r.full ? reload() : r));
+  }
+  return reload();
+  function reload() {
+    const prev = hit?.p.catch(() => null) ?? Promise.resolve(null);
+    const p = prev.then((m) => loadDailyNow(code, wantFull, m)).then((r) => { if (r.full) dailyFull.add(code); return r; });
+    p.catch(() => dailyMem.delete(code));
+    dailyMem.set(code, { ts: Date.now(), p });
+    if (dailyMem.size > 40) dailyMem.delete(dailyMem.keys().next().value!);
+    return p;
+  }
+}
+
+async function loadDailyNow(code: string, wantFull: boolean, mem: DailyRec | null): Promise<DailyRec> {
+  const key = `d:${code}`;
+  let rec = mem ?? await idbGet<DailyRec>(key);
+  if (rec && (rec.v !== 1 || !rec.bars?.length)) rec = null;
+  if (!rec) {
+    const { since, rows } = await fetchDailyShared(code, wantFull ? "all" : "recent");
+    const bars = rows.map(toBar);
+    // 上市不到 2 年的股票，近 2 年就是全部
+    const full = wantFull || !bars.length || Date.parse(bars[0].date!) - Date.parse(since) > 30 * 86400000;
+    rec = { v: 1, bars, full, checked: Date.now() };
+    void idbSet(key, rec);
+    return rec;
+  }
+  let changed = false;
+  if (wantFull && !rec.full) {
+    const first = rec.bars[0].date!;
+    const older = (await fetchDailyRange(code, { before: first })).map(toBar);
+    rec = { ...rec, bars: [...older, ...rec.bars], full: true };
+    changed = true;
+  }
+  if (Date.now() - rec.checked > DAILY_FRESH_MS) {
+    try {
+      const last = rec.bars[rec.bars.length - 1].date!;
+      const nw = (await fetchDailyRange(code, { from: last })).map(toBar); // 含最後一天（可能被修正）
+      if (nw.length) rec = { ...rec, bars: [...rec.bars.filter((b) => b.date! < last), ...nw] };
+      rec = { ...rec, checked: Date.now() };
+      changed = true;
+    } catch { /* 連不上就先用存檔 */ }
+  }
+  if (changed) void idbSet(key, rec);
+  return rec;
+}
+
+/** 第一次看這檔：走 /api/daily（大家共用 30 分鐘快取）；不行就直接問 Supabase */
+async function fetchDailyShared(code: string, scope: "recent" | "all"): Promise<{ since: string; rows: DailyRow[] }> {
+  const since = scope === "all" ? "1990-01-01"
+    : new Date(Date.now() + 8 * 3600_000 - RECENT_YEARS * 365 * 86400000).toISOString().slice(0, 10);
+  try {
+    const { data } = await sb().auth.getSession();
+    const token = data.session?.access_token;
+    if (token) {
+      const r = await fetch(`/api/daily?code=${encodeURIComponent(code)}&scope=${scope}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) {
+        const js = (await r.json()) as { since: string; rows: DailyRow[] };
+        if (Array.isArray(js.rows)) return js;
+      }
+    }
+  } catch { /* 改直接查 */ }
+  return { since, rows: await fetchDailyRange(code, { from: since }) };
+}
+
+async function fetchDailyRange(code: string, o: { from?: string; before?: string }): Promise<DailyRow[]> {
+  const rows: DailyRow[] = [];
   for (let from = 0; ; from += 1000) {
-    const r = must(await sb().from("daily_prices").select("date,open,high,low,close,volume")
-      .eq("code", code).gte("date", since).order("date").range(from, from + 999));
-    rows.push(...(r as typeof rows));
+    let q = sb().from("daily_prices").select("date,open,high,low,close,volume").eq("code", code);
+    if (o.from) q = q.gte("date", o.from);
+    if (o.before) q = q.lt("date", o.before);
+    const r = must(await q.order("date").range(from, from + 999)) as DailyRow[];
+    rows.push(...r);
     if (r.length < 1000) break;
   }
-  return rows.map((r) => ({
-    timestamp: dateToTs(r.date), date: r.date, open: +r.open, high: +r.high, low: +r.low,
-    close: +r.close, volume: Math.round(+r.volume / 1000), // 股 → 張
-  }));
+  return rows;
 }
 
 export async function getMinute(code: string): Promise<Bar[]> {

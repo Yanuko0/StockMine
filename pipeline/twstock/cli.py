@@ -42,6 +42,35 @@ def _set_output(key: str, value: str) -> None:
             f.write(f"{key}={value}\n")
 
 
+def _daily_years_needed(strat_list: list[dict], offset: int = 0) -> float:
+    """有月K條件時，日K 要讀幾年才夠算。
+    - 月扣三低 / 扣抵 / 均線：要 n + offset + 3 個月
+    - KD / RSI / MACD 這類有「起始值」的月K指標：要 3 倍期數暖機，數值才會穩定
+    至少 1.2 年（日K 年線 240 日要用），最多 DAILY_KEEP_YEARS。"""
+    months = 0
+
+    def nums(o):  # 條件裡所有期數（n、p=[60,3,3]…）
+        if isinstance(o, dict):
+            for k, v in o.items():
+                if k in ("n", "p", "fast", "slow", "sig"):
+                    yield from (v if isinstance(v, list) else [v])
+                else:
+                    yield from nums(v)
+        elif isinstance(o, list):
+            for v in o:
+                yield from nums(v)
+
+    for s in strat_list:
+        for c in screener.iter_conditions(s or {}):
+            if c.get("tf") != "M":
+                continue
+            ns = [int(x) for x in nums(c) if isinstance(x, (int, float))] or [12]
+            srcs = str(c)
+            osc = any(k in srcs for k in ("'k'", "'d'", "'rsi'", "'macd'", "'dif'", "'osc'", "'bias'"))
+            months = max(months, max(ns) * 3 if osc else max(ns) + offset + 3)
+    return min(config.DAILY_KEEP_YEARS, max(1.2, months / 12 + 0.1))
+
+
 def is_trading_day(conn, d: date) -> bool:
     df = db.query_df(conn, "select 1 from public.daily_prices where date = %s limit 1", (d,))
     return not df.empty
@@ -449,8 +478,9 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None,
                 return None
         tfs_needed = screener.needed_timeframes(strat_list) | (full_tfs - MINUTE_TFS)
 
-        # 日K：有月K條件時需要多年資料
-        years = config.DAILY_KEEP_YEARS if "M" in full_tfs else (2 if "W" in full_tfs else 1.2)
+        # 日K：只讀策略「真的需要」的年數（以前有月K條件就讀滿 5 年，全市場每次一百多 MB，Supabase 流量爆掉）
+        years = _daily_years_needed(strategies["conditions"].tolist(), offset) if "M" in full_tfs \
+            else (2 if "W" in full_tfs else 1.2)
         since = d - timedelta(days=int(365 * years))
         daily = db.query_df(conn, """select code, date, open, high, low, close, volume
                                      from public.daily_prices where date >= %s and date <= %s

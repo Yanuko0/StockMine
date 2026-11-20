@@ -21,7 +21,7 @@ import { deductIndex, deduct3low, vpBox } from "@/lib/indicators";
 import { TimeMapper } from "@/lib/timeline";
 import { TOOLS, type DrawKind } from "@/lib/tools";
 import {
-  addDrawing, addWatch, allStocks, applyLiveBars, deleteDrawing, getDaily, getLiveQuotes, marketOpen, type LiveQuote, getDrawings, getInst, getMainForce, getMinute, getSetting, getWatchlist, me,
+  addDrawing, addWatch, allStocks, applyLiveBars, deleteDrawing, getDaily, getDailyAll, isDailyFull, getLiveQuotes, marketOpen, type LiveQuote, getDrawings, getInst, getMainForce, getMinute, getSetting, getWatchlist, me,
   pushRecent, removeWatch, subscribeDrawings, updateDrawing, type Drawing, type DrawPoint, type Stock,
 } from "@/lib/data";
 
@@ -56,6 +56,7 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
   useEffect(() => { pushRecent(code); }, [code]);
   const [tf, setTf] = useState<TF>(() => loadPref("tf", "D"));
   const [dailyRaw, setDaily] = useState<Bar[]>([]);
+  const [full, setFull] = useState(false); // 日K 是否已載入全部歷史
   const [live, setLive] = useState<LiveQuote | undefined>(undefined);
   // 盤中 / 收盤後還沒進資料庫前：用證交所即時報價接上今天這一根
   const daily = useMemo(() => applyLiveBars(dailyRaw, live), [dailyRaw, live]);
@@ -121,8 +122,18 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
     getSetting<number>("deduct_offset", 0).then((v) => setOffset(Number(v) || 0));
     setLoading(true);
     setLive(undefined);
-    getDaily(code).then((d) => { setDaily(d); setLoading(false); });
+    setFull(false);
+    getDaily(code).then((d) => { setDaily(d); setFull(isDailyFull(code)); setLoading(false); });
   }, [code]);
+  // 週K / 月K 需要比較長的歷史：切過去時才補抓更早的日K（日K 往左拉到底也會補）
+  useEffect(() => {
+    if (loading || full || (tf !== "W" && tf !== "M")) return;
+    let alive = true;
+    getDailyAll(code).then((d) => { if (alive) { setDaily(d); setFull(true); } }).catch(() => {});
+    return () => { alive = false; };
+  }, [tf, code, full, loading]);
+  const loadOlder = useCallback(() => getDailyAll(code), [code]);
+  const onOlder = useCallback((d: Bar[]) => { setDaily(d); setFull(true); }, []);
 
   useEffect(() => {
     let alive = true;
@@ -288,7 +299,8 @@ export default function StockPage({ params }: { params: Promise<{ code: string }
                 drawings={drawings} userId={userId} tool={toolState}
                 onCreated={onCreated}
                 onMoved={(id, points) => { setDrawings((x) => x.map((d) => (d.id === id ? { ...d, points } : d))); updateDrawing(id, { points }); }}
-                onSelect={(id) => { if (id) setSelectedId(id); }} onCross={setCrossIdx} />
+                onSelect={(id) => { if (id) setSelectedId(id); }} onCross={setCrossIdx}
+                hasOlder={!full} loadOlder={loadOlder} onOlder={onOlder} />
             )}
             {selected && (
               <DrawEditor d={selected} mine={selected.created_by === userId} bars={bars} tf={tf}
