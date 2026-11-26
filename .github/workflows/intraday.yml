@@ -35,6 +35,13 @@ jobs:
           cache-dependency-path: pipeline/requirements.txt
       # 只裝盤中選股用得到的套件（不裝驗證碼辨識、Google 這些大套件，省 30 秒以上）
       - run: pip install pandas numpy httpx "psycopg[binary]" pyarrow shioaji pywebpush
+      - name: 還原大表快取（日K、法人、主力、融資：只從 Supabase 補新的日子，省流量）
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}
+          restore-keys: tables-
+      - run: rm -f .cache/tables/.fresh
       - name: 今天日期（台灣時間）
         run: echo "TODAY=$(TZ=Asia/Taipei date +%F)" >> "$GITHUB_ENV"
       - name: 還原今天盤中抓過的分K（立即選股可以直接沿用，不用逐檔重抓）
@@ -56,3 +63,10 @@ jobs:
         with:
           path: pipeline/.cache/live
           key: live-${{ env.TODAY }}-${{ github.run_id }}
+
+      - name: 存大表快取（有更新才存）
+        if: always() && hashFiles('pipeline/.cache/tables/.fresh') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}

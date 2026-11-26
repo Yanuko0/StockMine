@@ -1,0 +1,44 @@
+# 個股展望：每天收盤、法人資料出來後，幫自選股＋最近有新聞的股票整理新聞、券商目標價、偏多 / 偏空理由、上漲機率、風險
+# GEMINI_API_KEY（選填，Google AI Studio 免費金鑰）：有設定才會用 AI 整理新聞理由；沒設定只用規則
+name: 個股展望
+
+on:
+  schedule:
+    - cron: "50 14 * * 1-5"   # 台灣時間 22:50 備用（主要靠 Vercel Cron 21:30 叫；2 小時內跑過會自動略過）
+  workflow_dispatch:
+
+concurrency:
+  group: outlook
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: pipeline
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install pandas numpy httpx "psycopg[binary]" pyarrow
+      - name: 還原大表快取（日K、法人、主力、融資：只從 Supabase 補新的日子，省流量）
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}
+          restore-keys: tables-
+      - run: rm -f .cache/tables/.fresh
+      - run: python -m twstock.cli outlook
+
+      - name: 存大表快取（有更新才存）
+        if: always() && hashFiles('pipeline/.cache/tables/.fresh') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}

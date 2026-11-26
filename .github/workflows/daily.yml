@@ -45,6 +45,13 @@ jobs:
           cache-dependency-path: pipeline/requirements.txt
       - run: pip install -r requirements.txt
 
+      - name: 還原大表快取（日K、法人、主力、融資：只從 Supabase 補新的日子，省流量）
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}
+          restore-keys: tables-
+      - run: rm -f .cache/tables/.fresh
       # 分鐘K 快取：保存在 GitHub，不必每天從 Supabase 下載全市場檔案（省下載流量）
       - name: 還原分鐘K 快取
         uses: actions/cache/restore@v4
@@ -77,3 +84,10 @@ jobs:
       - name: 選股
         if: steps.eod.outputs.trading == 'true'
         run: python -m twstock.cli screen ${D:+--date $D}
+
+      - name: 存大表快取（有更新才存）
+        if: always() && hashFiles('pipeline/.cache/tables/.fresh') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}
