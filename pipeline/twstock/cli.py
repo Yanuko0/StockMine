@@ -25,7 +25,7 @@ from datetime import date, datetime, timedelta
 
 import pandas as pd
 
-from . import bars, broker_files, global_themes, news, company, config, db, fundamentals, outlook, summary, gdrive, push, screener, storage, tranche
+from . import bars, broker_files, global_themes, news, company, config, db, fundamentals, localcache, outlook, summary, gdrive, push, screener, storage, tranche
 from .sources import broker as broker_src
 from .sources import finmind, official
 
@@ -482,17 +482,16 @@ def job_screen(d: date, only: list[str] | None = None, live: dict | None = None,
         years = _daily_years_needed(strategies["conditions"].tolist(), offset) if "M" in full_tfs \
             else (2 if "W" in full_tfs else 1.2)
         since = d - timedelta(days=int(365 * years))
-        daily = db.query_df(conn, """select code, date, open, high, low, close, volume
-                                     from public.daily_prices where date >= %s and date <= %s
-                                     order by code, date""", (since, d))
+        # 日K / 法人 / 主力：讀 GitHub 快取，只從資料庫補新的日子（省 Supabase 流量）
+        daily = localcache.load(conn, "daily_prices", since, d, cols=["open", "high", "low", "close", "volume"])
         try:
             meta = db.query_df(conn, "select code, name, market, kind, industry, shares, board_pct from public.stocks").set_index("code")
         except Exception:  # noqa: BLE001  還沒跑 008 升級
             conn.rollback()
             meta = db.query_df(conn, "select code, name, market, kind, industry, shares, null::numeric as board_pct from public.stocks").set_index("code")
         names = meta["name"].to_dict()
-        inst = db.query_df(conn, "select * from public.institutional where date > %s", (d - timedelta(days=45),))
-        mf = db.query_df(conn, "select * from public.main_force where date > %s", (d - timedelta(days=45),))
+        inst = localcache.load(conn, "institutional", d - timedelta(days=44), d)
+        mf = localcache.load(conn, "main_force", d - timedelta(days=44), d)
         kinds_needed = {c.get("kind") for s in strat_list for c in screener.iter_conditions(s)}
         owners = [o for o in strategies["owner"].dropna().unique().tolist()]
         draws = db.query_df(conn, """select code, kind, points, created_by from public.drawings

@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-11-26　Supabase 流量用完（exceed_egress_quota）：大表改讀 GitHub 快取
+
+**改了什麼**
+- 選股、盤中選股、立即選股、建倉提醒、每日摘要、個股展望不再每次從 Supabase 讀全市場的日K、法人、主力、融資。改成存在 GitHub Actions 的快取裡，每次只向資料庫問「每天有幾筆、加總多少」（一天一列，很小）。
+- 只重新下載新的日子、有變動的日子、被刪掉的日子，再加上最近 3 天（法人晚公布、資料更正）。
+- 結果跟直接讀資料庫完全一樣；沒有快取時（第一次跑、本機測試）就整段從資料庫讀。
+- 預估 Supabase 流量：選股相關的讀取從每次幾十～上百 MB，降到每次幾十 KB～幾 MB。11/17 盤中加速造成的「讀兩次」也一起解決，同一次執行內第二次讀直接用記憶體裡的資料。
+
+**程式改了哪裡**
+- `pipeline/twstock/localcache.py`（新）：`load()` / `sync()`，用每天筆數＋欄位加總比對快取和資料庫，只補差異的日子。有更新才留下 `.fresh`，workflow 看到才存回 GitHub。
+- `pipeline/twstock/cli.py`：`job_screen` 的日K、三大法人、主力改用 `localcache.load`。
+- `pipeline/twstock/outlook.py`：3 年統計、今天狀態、波動排名、法人、主力、融資、上線成績都改讀快取。
+- `pipeline/twstock/tranche.py`（建倉提醒 5 年日K）、`pipeline/twstock/summary.py`（創月新高 / 新低）：改讀快取。
+- `pipeline/tests/test_localcache.py`（新）：第一次整段讀、之後只補新 / 更正 / 刪掉的日子、沒變就不重存、同一次執行不重問。`pipeline/tests/conftest.py`（新）：每個測試用獨立的快取資料夾。全部測試 75 個通過。
+- workflow：`daily.yml`、`intraday.yml`、`screen-now.yml`、`outlook.yml` 加上「還原大表快取」「存大表快取（有更新才存）」；`outlook.yml` 補裝 `pyarrow`。
+
+**你要做的**
+1. 把 `_待移入_github_workflows/` 裡的 4 個檔案（daily、intraday、screen-now、outlook）移到 `.github/workflows/`，覆蓋原本的。
+2. Commit + Push。
+3. Supabase 恢復服務後（下個計費週期或升級），之前停用的「盤中選股」可以重新開啟。第一次跑會整段讀一次（跟以前一樣大），之後就只讀差異。
+
+---
+
 ## 2026-11-17　個股「新聞・展望」：新聞、券商目標價、偏多 / 偏空、上漲機率、風險、AI 提示詞
 
 **改了什麼**

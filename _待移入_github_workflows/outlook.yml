@@ -26,5 +26,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install pandas numpy httpx "psycopg[binary]"
+      - run: pip install pandas numpy httpx "psycopg[binary]" pyarrow
+      - name: 還原大表快取（日K、法人、主力、融資：只從 Supabase 補新的日子，省流量）
+        uses: actions/cache/restore@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}
+          restore-keys: tables-
+      - run: rm -f .cache/tables/.fresh
       - run: python -m twstock.cli outlook
+
+      - name: 存大表快取（有更新才存）
+        if: always() && hashFiles('pipeline/.cache/tables/.fresh') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: pipeline/.cache/tables
+          key: tables-${{ github.run_id }}

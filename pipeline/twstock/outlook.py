@@ -30,7 +30,7 @@ from urllib.parse import quote
 import numpy as np
 import pandas as pd
 
-from . import db, indicators as ind, targets as T
+from . import db, indicators as ind, localcache, targets as T
 from .sources import http
 
 H = 20                 # 看之後 20 個交易日（約一個月）
@@ -489,8 +489,14 @@ def update(conn, d: date, now: datetime | None = None) -> str:
     if not os.environ.get("OUTLOOK_FORCE") and not last.empty and last["t"][0] is not None \
             and now - pd.Timestamp(last["t"][0]).to_pydatetime() < timedelta(hours=2):
         return f"{pd.Timestamp(last['t'][0]).tz_convert('Asia/Taipei'):%H:%M} 剛跑過，略過"
-    meta = db.query_df(conn, "select code, name from public.stocks")
+    meta = db.query_df(conn, "select code, name, kind from public.stocks")
     names = dict(zip(meta["code"], meta["name"]))
+    stock_codes = set(meta.loc[meta["kind"] == "stock", "code"])
+    # 大表都讀 GitHub 快取（localcache），只從資料庫補新的日子：省 Supabase 流量
+    def px(since_, cols, codes_=None):
+        x = localcache.load(conn, "daily_prices", since_, d, codes=codes_, cols=cols)
+        x = x[x["code"].isin(stock_codes) & (x["close"] > 0)] if "close" in cols else x[x["code"].isin(stock_codes)]
+        return x.reset_index(drop=True)
     codes = pick_codes(conn, now)
 
     # 1) 歷史狀態統計（全市場 3 年）：一週重算一次就好（每天讀 3 年全市場會吃掉 Supabase 免費的流量額度）
@@ -501,11 +507,8 @@ def update(conn, d: date, now: datetime | None = None) -> str:
         table, calib, built = tab_saved, model.get("calib") or {}, model["built"]
     else:
         since = d - timedelta(days=int(365.25 * HIST_YEARS) + 120)
-        hist = db.query_df(conn, """select p.code, p.date, p.high, p.low, p.close, p.volume from public.daily_prices p
-                                    join public.stocks s on s.code = p.code
-                                    where s.kind = 'stock' and p.date >= %s and p.date <= %s and p.close > 0""", (since, d))
-        hinst = db.query_df(conn, "select code, date, foreign_net from public.institutional where date >= %s",
-                            (d - timedelta(days=420),))
+        hist = px(since, ["high", "low", "close", "volume"])
+        hinst = localcache.load(conn, "institutional", d - timedelta(days=420), d, cols=["foreign_net"])
         f = features(hist, hinst)
         table = state_table(f)
         dates = sorted(f["date"].unique())
@@ -520,17 +523,11 @@ def update(conn, d: date, now: datetime | None = None) -> str:
     if not base:
         raise RuntimeError("歷史資料不夠，算不出統計")
     # 今天的狀態：只讀要算的股票近 200 天；波動排名、最新收盤讀全市場近 40 天
-    daily = db.query_df(conn, """select code, date, high, low, close, volume from public.daily_prices
-                                 where code = any(%s) and date >= %s and date <= %s and close > 0""",
-                        (codes, d - timedelta(days=200), d))
-    daily = daily.sort_values(["code", "date"]).reset_index(drop=True)
-    inst = db.query_df(conn, "select code, date, foreign_net, trust_net from public.institutional where code = any(%s) and date >= %s",
-                       (codes, d - timedelta(days=60)))
+    daily = px(d - timedelta(days=200), ["high", "low", "close", "volume"], codes)
+    inst = localcache.load(conn, "institutional", d - timedelta(days=60), d, codes=codes, cols=["foreign_net", "trust_net"])
     f = features(daily, inst)
     today = f[f["date"] == f.groupby("code")["date"].transform("max")]
-    recent = db.query_df(conn, """select p.code, p.date, p.close from public.daily_prices p join public.stocks s on s.code = p.code
-                                  where s.kind = 'stock' and p.date >= %s and p.date <= %s and p.close > 0""",
-                         (d - timedelta(days=40), d)).sort_values(["code", "date"])
+    recent = px(d - timedelta(days=40), ["close"])
     vol20 = recent.groupby("code")["close"].apply(lambda s: s.astype(float).pct_change().iloc[-20:].std())
     vol_rank = vol20.rank(pct=True) * 100
     closes = recent.groupby("code")["close"].last().astype(float).to_dict()
@@ -576,10 +573,8 @@ def update(conn, d: date, now: datetime | None = None) -> str:
     tp_all = db.query_df(conn, "select * from public.target_prices where code = any(%s) and date >= %s",
                          (codes, d - timedelta(days=400)))
     inst_s = inst[inst["code"].isin(codes)]
-    mf = db.query_df(conn, "select code, date, net from public.main_force where code = any(%s) and date >= %s",
-                     (codes, d - timedelta(days=20)))
-    margin = db.query_df(conn, "select code, date, margin_balance from public.margin where code = any(%s) and date >= %s",
-                         (codes, d - timedelta(days=20)))
+    mf = localcache.load(conn, "main_force", d - timedelta(days=20), d, codes=codes, cols=["net"])
+    margin = localcache.load(conn, "margin", d - timedelta(days=20), d, codes=codes, cols=["margin_balance"])
     stats = db.get_setting(conn, "news_stats", {}) or {}
     flags = {s["code"]: s for s in stats.get("stocks", []) if isinstance(s, dict) and s.get("code")}
     prev = db.query_df(conn, "select code, data from public.stock_outlook where code = any(%s)", (codes,))
@@ -645,7 +640,7 @@ def update(conn, d: date, now: datetime | None = None) -> str:
         db.upsert(conn, "stock_outlook", pd.DataFrame(rows), ["code"])
     if logs:
         db.upsert(conn, "outlook_log", pd.DataFrame(logs), ["code", "date"])
-    track = live_track(conn)
+    track = live_track(conn, d)
     db.execute(conn, """insert into public.app_settings (key, value) values ('outlook_model', %s::jsonb)
                         on conflict (key) do update set value = excluded.value""",
                (json.dumps(_finite({"at": now.isoformat(timespec="minutes"), "built": built, "base": base, "calib": calib,
@@ -656,13 +651,12 @@ def update(conn, d: date, now: datetime | None = None) -> str:
             f"全市場平均上漲機率 {base['win']:.0f}%；花 {time.time() - t0:.0f} 秒")
 
 
-def live_track(conn) -> dict:
+def live_track(conn, d: date) -> dict:
     """實際上線後的成績：以前給的機率，20 個交易日後真的漲了沒。"""
     log = db.query_df(conn, "select code, date, p_up, base, close from public.outlook_log")
     if log.empty:
         return {}
-    daily = db.query_df(conn, "select code, date, close from public.daily_prices where code = any(%s) and date >= %s",
-                        (log["code"].unique().tolist(), log["date"].min()))
+    daily = localcache.load(conn, "daily_prices", log["date"].min(), d, codes=log["code"].unique().tolist(), cols=["close"])
     dates = sorted(daily["date"].unique())
     if len(dates) <= H:
         return {}

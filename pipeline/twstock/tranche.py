@@ -18,7 +18,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from . import bars, db, push, screener
+from . import bars, db, localcache, push, screener
 
 MINUTE_TFS = set(bars.MINUTE_TFS)
 
@@ -95,9 +95,8 @@ def run(d: date, load_minutes) -> str:
     tfs_needed = screener.needed_timeframes(all_rules) | {"D"}
 
     with db.connect() as conn:
-        daily = db.query_df(conn, """select code, date, open, high, low, close, volume from public.daily_prices
-                                     where code = any(%s) and date > %s and date <= %s order by code, date""",
-                            (codes, d - timedelta(days=int(365.25 * 5)), d))
+        daily = localcache.load(conn, "daily_prices", d - timedelta(days=int(365.25 * 5)) + timedelta(days=1), d,
+                                codes=codes, cols=["open", "high", "low", "close", "volume"])
     for c in ("open", "high", "low", "close"):
         daily[c] = daily[c].astype(float)
     daily["volume"] = daily["volume"].astype(float) / 1000

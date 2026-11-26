@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 import pandas as pd
 
-from . import db
+from . import db, localcache
 
 TOP = 20
 
@@ -81,8 +81,8 @@ def compute(conn, d: date) -> dict | None:
 
     # 創月新高 / 新低：今天最高（最低）超過前 20 個交易日的最高（最低）
     try:
-        hl = db.query_df(conn, """select code, date, high, low from public.daily_prices
-                                  where code <> 'TAIEX' and date <= %s and date > %s""", (d, d - timedelta(days=45)))
+        hl = localcache.load(conn, "daily_prices", d - timedelta(days=44), d, cols=["high", "low"])
+        hl = hl[hl["code"] != "TAIEX"]
         hl["high"] = pd.to_numeric(hl["high"], errors="coerce")
         hl["low"] = pd.to_numeric(hl["low"], errors="coerce")
         days = sorted(hl["date"].unique())[-21:]
